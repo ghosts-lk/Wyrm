@@ -2,14 +2,21 @@
 /**
  * 🐉 Wyrm HTTP API Server
  * REST API wrapper for local LLMs (Ollama, LM Studio, llama.cpp, etc.)
+ * 
+ * @copyright 2026 Ghost Protocol (Pvt) Ltd. All Rights Reserved.
+ * @license Proprietary - See LICENSE file for details.
  */
 
 import http from 'http';
 import { WyrmDB } from './database.js';
 import { createContextBundle } from './summarizer.js';
+import { authMiddleware, getSecurityHeaders, getAuthStatus } from './http-auth.js';
+import { getLogger } from './logger.js';
 
 const PORT = parseInt(process.env.WYRM_PORT || '3333');
+const MAX_BODY_SIZE = 1024 * 1024; // 1MB limit
 const db = new WyrmDB();
+const logger = getLogger();
 
 interface RequestBody {
   [key: string]: unknown;
@@ -18,7 +25,18 @@ interface RequestBody {
 function parseBody(req: http.IncomingMessage): Promise<RequestBody> {
   return new Promise((resolve, reject) => {
     let body = '';
-    req.on('data', chunk => body += chunk);
+    let size = 0;
+    
+    req.on('data', chunk => {
+      size += chunk.length;
+      if (size > MAX_BODY_SIZE) {
+        req.destroy();
+        reject(new Error('Request body too large'));
+        return;
+      }
+      body += chunk;
+    });
+    
     req.on('end', () => {
       try {
         resolve(body ? JSON.parse(body) : {});
@@ -30,18 +48,17 @@ function parseBody(req: http.IncomingMessage): Promise<RequestBody> {
   });
 }
 
-function jsonResponse(res: http.ServerResponse, data: unknown, status = 200) {
+function jsonResponse(res: http.ServerResponse, req: http.IncomingMessage, data: unknown, status = 200) {
+  const headers = getSecurityHeaders(req);
   res.writeHead(status, { 
+    ...headers,
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type'
   });
   res.end(JSON.stringify(data, null, 2));
 }
 
-function errorResponse(res: http.ServerResponse, message: string, status = 400) {
-  jsonResponse(res, { error: message }, status);
+function errorResponse(res: http.ServerResponse, req: http.IncomingMessage, message: string, status = 400) {
+  jsonResponse(res, req, { error: message }, status);
 }
 
 // Route handlers
@@ -354,19 +371,19 @@ const routes: Record<string, (body: RequestBody) => unknown> = {
       })),
       systemPrompt: `You have access to ${projects.length} projects with ${allQuests.length} total pending tasks.`
     };
+  },
+  
+  // Auth status endpoint (no auth required for this one)
+  'GET /auth/status': () => {
+    return getAuthStatus();
   }
 };
 
 const server = http.createServer(async (req, res) => {
-  // Handle CORS preflight
-  if (req.method === 'OPTIONS') {
-    res.writeHead(204, {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type'
-    });
-    res.end();
-    return;
+  // Apply authentication middleware (handles CORS preflight, rate limiting, auth)
+  const authResult = authMiddleware(req, res);
+  if (authResult.error) {
+    return; // Response already sent by middleware
   }
   
   try {
@@ -413,36 +430,43 @@ const server = http.createServer(async (req, res) => {
     
     if (!handler) {
       if (url.pathname === '/' || url.pathname === '/help') {
-        jsonResponse(res, {
+        jsonResponse(res, req, {
           name: '🐉 Wyrm HTTP API',
-          version: '2.0.0',
+          version: '3.0.0',
           description: 'REST API for local LLM integration',
+          authentication: 'Bearer token required (see ~/.wyrm/http-config.json)',
           endpoints: Object.keys(routes).sort(),
           specialEndpoints: {
             '/llm-context': 'Get everything an LLM needs in one call',
-            '/llm-context?projectPath=...': 'Get project-specific context'
+            '/llm-context?projectPath=...': 'Get project-specific context',
+            '/auth/status': 'Check authentication configuration'
           }
         });
         return;
       }
       
-      errorResponse(res, 'Not found', 404);
+      errorResponse(res, req, 'Not found', 404);
       return;
     }
     
     const result = handler(body);
-    jsonResponse(res, result);
+    jsonResponse(res, req, result);
     
   } catch (err) {
-    console.error('Error:', err);
-    errorResponse(res, (err as Error).message, 500);
+    logger.error('HTTP request failed', { 
+      path: req.url, 
+      error: (err as Error).message 
+    });
+    errorResponse(res, req, (err as Error).message, 500);
   }
 });
 
 server.listen(PORT, () => {
+  logger.info('Wyrm HTTP API started', { port: PORT });
   console.log(`🐉 Wyrm HTTP API running on http://localhost:${PORT}`);
   console.log(`   Documentation: http://localhost:${PORT}/help`);
   console.log(`   LLM Context:   http://localhost:${PORT}/llm-context`);
+  console.log(`   Auth Required: ${getAuthStatus().requireAuth ? 'Yes' : 'No (dev mode)'}`);
 });
 
 export { server };

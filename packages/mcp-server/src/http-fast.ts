@@ -2,43 +2,62 @@
 /**
  * 🐉 Wyrm Fast API
  * Optimized for AI consumption - minimal latency, compact responses
+ * 
+ * Copyright (c) 2025 Ghost Protocol LLC. All rights reserved.
+ * This is proprietary software. Unauthorized use, modification,
+ * or distribution is strictly prohibited.
  */
 
 import http from 'http';
 import { WyrmDB } from './database.js';
 import { cache, estimateTokens, truncateToTokens, timed } from './performance.js';
+import { authMiddleware, getAuthStatus, getSecurityHeaders } from './http-auth.js';
+import { WyrmLogger } from './logger.js';
 
 const PORT = parseInt(process.env.WYRM_PORT || '3333');
+const MAX_BODY_SIZE = 512 * 1024; // 512KB - smaller for fast API
 const db = new WyrmDB();
+const logger = new WyrmLogger({ level: 'info' });
 
 // Prepared statement cache - reuse queries
 const stmtCache = new Map<string, unknown>();
 
-// Minimal JSON response
-function send(res: http.ServerResponse, data: unknown, status = 200): void {
+// Minimal JSON response with security headers
+function send(res: http.ServerResponse, req: http.IncomingMessage, data: unknown, status = 200): void {
   const json = JSON.stringify(data);
+  const securityHeaders = getSecurityHeaders(req);
   res.writeHead(status, {
     'Content-Type': 'application/json',
     'Content-Length': Buffer.byteLength(json),
     'X-Tokens': String(estimateTokens(data)),
-    'Access-Control-Allow-Origin': '*'
+    ...securityHeaders
   });
   res.end(json);
 }
 
-// Fast body parser - no streaming for small payloads
+// Fast body parser with size limit
 function body(req: http.IncomingMessage): Promise<Record<string, unknown>> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     if (req.method === 'GET') {
       resolve({});
       return;
     }
     let data = '';
-    req.on('data', c => data += c);
+    let size = 0;
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > MAX_BODY_SIZE) {
+        req.destroy();
+        reject(new Error('Request body too large'));
+        return;
+      }
+      data += chunk;
+    });
     req.on('end', () => {
       try { resolve(data ? JSON.parse(data) : {}); }
       catch { resolve({}); }
     });
+    req.on('error', reject);
   });
 }
 
@@ -286,21 +305,24 @@ const routes: Record<string, Handler> = {
     return { ...result, ms, cache: cache.stats() };
   },
 
-  // Health check
-  'GET /health': () => ({ ok: 1, ts: Date.now() })
+  // Health check (unauthenticated)
+  'GET /health': () => ({ ok: 1, ts: Date.now() }),
+
+  // Auth status
+  'GET /auth/status': () => {
+    const status = getAuthStatus();
+    return {
+      auth: status.requireAuth ? 1 : 0,
+      origins: status.allowedOrigins.length
+    };
+  }
 };
 
-// Server
+// Server with authentication
 const server = http.createServer(async (req, res) => {
-  if (req.method === 'OPTIONS') {
-    res.writeHead(204, {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type'
-    });
-    res.end();
-    return;
-  }
+  // Apply auth middleware - handles CORS preflight and auth validation
+  const authResult = authMiddleware(req, res);
+  if (authResult.error) return;
 
   try {
     const url = new URL(req.url || '/', `http://localhost:${PORT}`);
@@ -314,28 +336,35 @@ const server = http.createServer(async (req, res) => {
 
     if (!handler) {
       if (url.pathname === '/') {
-        send(res, {
-          wyrm: '2.2',
+        send(res, req, {
+          wyrm: '3.0',
           routes: Object.keys(routes).sort(),
+          auth: getAuthStatus().requireAuth ? 'required' : 'disabled',
           tip: 'GET /c for quick context'
         });
         return;
       }
-      send(res, { e: 'not found' }, 404);
+      send(res, req, { e: 'not found' }, 404);
       return;
     }
 
     const { result, ms } = timed(() => handler(args));
     res.setHeader('X-Time-Ms', String(ms));
-    send(res, result);
+    send(res, req, result);
 
   } catch (err) {
-    send(res, { e: (err as Error).message }, 500);
+    logger.error('Fast API request failed', { 
+      path: req.url, 
+      error: (err as Error).message 
+    });
+    send(res, req, { e: (err as Error).message }, 500);
   }
 });
 
 server.listen(PORT, () => {
+  logger.info('Wyrm Fast API started', { port: PORT });
   console.log(`🐉 Wyrm Fast API on :${PORT}`);
+  console.log(`   Auth: ${getAuthStatus().requireAuth ? 'required' : 'disabled'}`);
 });
 
 export { server };
