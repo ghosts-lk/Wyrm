@@ -13,7 +13,7 @@
 
 > *"The ancient wyrm remembers all. What was spoken, what was built, what remains undone."*
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: Proprietary](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/)
 
@@ -180,7 +180,9 @@ project/
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+**Proprietary** - Copyright (c) 2026 Ghost Protocol (Pvt) Ltd. All Rights Reserved.
+
+See [LICENSE](LICENSE) for full terms. For licensing inquiries, contact legal@ghosts.lk
 
 ## Credits
 

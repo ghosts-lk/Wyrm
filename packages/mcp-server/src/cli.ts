@@ -1,6 +1,8 @@
 /**
  * Wyrm CLI - Beautiful command-line interface
  * 
+ * @copyright 2026 Ghost Protocol (Pvt) Ltd. All Rights Reserved.
+ * @license Proprietary - See LICENSE file for details.
  * @module cli
  * @version 3.0.0
  */

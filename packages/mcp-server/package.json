@@ -33,8 +33,9 @@
     "context",
     "persistent"
   ],
-  "author": "Ghost Protocol <dev@ghosts.lk>",
-  "license": "MIT",
+  "author": "Ghost Protocol (Pvt) Ltd <legal@ghosts.lk>",
+  "license": "SEE LICENSE IN LICENSE",
+  "private": true,
   "homepage": "https://ghosts.lk/wyrm",
   "repository": {
     "type": "git",

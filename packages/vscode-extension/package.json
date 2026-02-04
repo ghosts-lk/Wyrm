@@ -24,6 +24,7 @@
     "type": "git",
     "url": "https://github.com/Ghosts-Protocol-Pvt-Ltd/Wyrm"
   },
+  "license": "SEE LICENSE IN LICENSE",
   "homepage": "https://ghosts.lk/wyrm",
   "activationEvents": [
     "workspaceContains:.wyrm",

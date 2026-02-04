@@ -1,6 +1,8 @@
 /**
  * Wyrm Types - Core type definitions
  * 
+ * @copyright 2026 Ghost Protocol (Pvt) Ltd. All Rights Reserved.
+ * @license Proprietary - See LICENSE file for details.
  * @module types
  * @version 3.0.0
  */

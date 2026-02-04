@@ -2,6 +2,8 @@
  * Wyrm Encryption Module
  * AES-256-GCM encryption for sensitive memory data
  * 
+ * @copyright 2026 Ghost Protocol (Pvt) Ltd. All Rights Reserved.
+ * @license Proprietary - See LICENSE file for details.
  * @module crypto
  * @version 3.0.0
  */

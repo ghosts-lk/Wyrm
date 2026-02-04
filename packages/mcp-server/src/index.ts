@@ -2,6 +2,9 @@
 /**
  * Wyrm MCP Server - Model Context Protocol for AI memory
  * 
+ * @copyright 2026 Ghost Protocol (Pvt) Ltd. All Rights Reserved.
+ * @license Proprietary - See LICENSE file for details.
+ * 
  * Features:
  * - Auto-discovery of projects in watched directories
  * - Multi-project tracking with unified context
