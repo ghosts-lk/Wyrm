@@ -15,7 +15,7 @@
  * - Graceful degradation
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, renameSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, renameSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import { WyrmLogger } from './logger.js';
@@ -468,8 +468,6 @@ export class ResilienceManager {
    * Recover incomplete operations on startup
    */
   private recoverIncompleteOperations(): void {
-    const { readdirSync } = require('fs');
-    
     try {
       const files = readdirSync(this.checkpointDir);
       const checkpoints: CheckpointData[] = [];

@@ -247,6 +247,9 @@ export function getSecurityHeaders(req: IncomingMessage): Record<string, string>
 
 // ==================== MIDDLEWARE ====================
 
+// Public endpoints that don't require authentication
+const PUBLIC_ENDPOINTS = ['/health', '/auth/status'];
+
 /**
  * Authentication middleware for HTTP server
  * Returns error response if auth fails, null if auth passes
@@ -264,7 +267,7 @@ export function authMiddleware(
     return { error: true }; // Request handled, stop processing
   }
   
-  // Check rate limit
+  // Check rate limit (applies to all endpoints)
   const rateLimit = checkRateLimit(req);
   if (!rateLimit.allowed) {
     const headers = getSecurityHeaders(req);
@@ -282,6 +285,12 @@ export function authMiddleware(
     });
     
     return { error: true };
+  }
+  
+  // Skip auth for public endpoints
+  const pathname = new URL(req.url || '/', `http://localhost`).pathname;
+  if (PUBLIC_ENDPOINTS.includes(pathname)) {
+    return { error: false };
   }
   
   // Check authentication

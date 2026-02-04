@@ -376,6 +376,11 @@ const routes: Record<string, (body: RequestBody) => unknown> = {
   // Auth status endpoint (no auth required for this one)
   'GET /auth/status': () => {
     return getAuthStatus();
+  },
+  
+  // Health check endpoint (no auth required)
+  'GET /health': () => {
+    return { status: 'ok', timestamp: Date.now(), version: '3.0.0' };
   }
 };
 
