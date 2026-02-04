@@ -1,7 +1,7 @@
 {
   "name": "@wyrm/mcp-server",
-  "version": "2.2.0",
-  "description": "🐉 Wyrm - Fast AI Memory System",
+  "version": "3.0.0",
+  "description": "🐉 Wyrm - Persistent AI Memory System with encryption, full-text search, and infinite storage",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -14,7 +14,34 @@
     "start": "node dist/index.js",
     "http": "node dist/http-server.js",
     "fast": "node dist/http-fast.js",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "test:watch": "npm run test -- --watch",
+    "lint": "eslint src --ext .ts",
+    "clean": "rm -rf dist",
+    "prepublish": "npm run build"
+  },
+  "keywords": [
+    "ai",
+    "memory",
+    "mcp",
+    "model-context-protocol",
+    "sqlite",
+    "copilot",
+    "claude",
+    "gpt",
+    "context",
+    "persistent"
+  ],
+  "author": "Ghost Protocol <dev@ghosts.lk>",
+  "license": "MIT",
+  "homepage": "https://ghosts.lk/wyrm",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ghosts-Protocol-Pvt-Ltd/Wyrm.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Ghosts-Protocol-Pvt-Ltd/Wyrm/issues"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
@@ -23,6 +50,12 @@
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.8",
     "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "eslint": "^8.57.0",
+    "jest": "^29.7.0",
+    "@types/jest": "^29.5.0",
+    "ts-jest": "^29.1.0",
     "typescript": "^5.0.0"
   },
   "engines": {

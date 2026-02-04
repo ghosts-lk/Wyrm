@@ -7,161 +7,187 @@
 ██║███╗██║  ╚██╔╝  ██╔══██╗██║╚██╔╝██║
 ╚███╔███╔╝   ██║   ██║  ██║██║ ╚═╝ ██║
  ╚══╝╚══╝    ╚═╝   ╚═╝  ╚═╝╚═╝     ╚═╝
-    Persistent AI Memory System
+    Persistent AI Memory System v3.0.0
            ghosts.lk
 ```
 
 > *"The ancient wyrm remembers all. What was spoken, what was built, what remains undone."*
 
-## What is Wyrm?
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/)
 
-**Wyrm** is a **fully automated, infinite** persistent memory system for AI-assisted development. It maintains context across chat sessions, so your AI assistant always knows:
+## Overview
 
-- 📜 **What the project is** - Architecture, stack, key decisions
-- 🔥 **What was done** - Session history with commits and changes  
-- ⚔️ **What remains** - Prioritized mission queue
-- 🐲 **How to operate** - Project-specific protocols
+**Wyrm** is a persistent memory system for AI-assisted development. It maintains context across chat sessions, enabling AI assistants to remember project details, track work sessions, and manage tasks.
 
-## 🚀 Automation Features
+### Key Features
 
-Wyrm includes two powerful automation tools:
+| Feature | Description |
+|---------|-------------|
+| 🧠 **Persistent Memory** | SQLite-backed storage that survives across sessions |
+| 🔍 **Full-Text Search** | Fast FTS5 search across sessions, quests, and data |
+| 🔐 **AES-256 Encryption** | Optional encryption for sensitive context data |
+| 🚀 **MCP Protocol** | Native Model Context Protocol support for AI tools |
+| 📊 **Data Lake** | Store large datasets with batch operations |
+| 🔄 **Auto-Sync** | Bi-directional sync with \`.wyrm/\` markdown files |
+| 🎯 **Quest Management** | Track tasks with priorities and tags |
+| 📈 **Token Tracking** | Automatic token estimation for context budgeting |
 
-### MCP Server (Model Context Protocol)
-- **Auto-injects** project context into AI conversations
-- **Infinite storage** via SQLite database
-- **Auto-summarizes** old sessions to manage token limits
-- Works with Claude, GPT, and any MCP-compatible AI
+## Installation
 
-### VS Code Extension
-- **Auto-loads** .wyrm folder when you open a project
-- **Auto-saves** sessions when you close the workspace
-- **Sidebar views** for quests, sessions, and context
-- **One-click** commands for common operations
+### Option 1: NPM (Recommended)
 
-## Quick Start
+\`\`\`bash
+npm install -g @wyrm/mcp-server
+\`\`\`
 
-### Option 1: Auto-Deploy (Multi-Project)
+### Option 2: From Source
 
-Automatically scan a folder and deploy Wyrm to all projects:
-
-```bash
-# Run from the Wyrm folder
-./wyrm-deploy.sh /path/to/your/projects
-
-# Or install globally
-sudo ln -sf "$(pwd)/wyrm-deploy.sh" /usr/local/bin/wyrm-deploy
-wyrm-deploy /path/to/your/projects
-```
-
-This will:
-- Scan all subdirectories
-- Detect project types (Next.js, Python, PHP, etc.)
-- Create `.wyrm/` folders with appropriate templates
-- Create a unified workspace-level `.wyrm/` for cross-project memory
-
-### Option 2: MCP Server + VS Code Extension
-
-```bash
-# Install MCP Server globally
+\`\`\`bash
+git clone https://github.com/Ghosts-Protocol-Pvt-Ltd/Wyrm.git
 cd Wyrm/packages/mcp-server
 npm install && npm run build
 npm link
+\`\`\`
 
-# Install VS Code Extension
-cd ../vscode-extension
-npm install && npm run compile
-# Then install the .vsix or run in dev mode
-```
+### Option 3: Auto-Deploy to Projects
 
-### Option 3: Manual (Single Project)
+\`\`\`bash
+wyrm-deploy /path/to/your/projects
+\`\`\`
 
-```bash
-# Install in your project
-curl -sSL https://raw.githubusercontent.com/ghosts-lk/Wyrm/main/install.sh | bash
-```
+## Quick Start
 
-### Option 4: Git Submodule
+### 1. Configure with GitHub Copilot
 
-```bash
-git submodule add https://github.com/ghosts-lk/Wyrm.git .wyrm
-cd .wyrm && ./install.sh
-```
+Add to your VS Code settings (\`.vscode/settings.json\`):
 
-## File Structure
+\`\`\`json
+{
+  "github.copilot.chat.experimental.mcpServers": {
+    "wyrm": {
+      "command": "wyrm-mcp"
+    }
+  }
+}
+\`\`\`
 
-```
-.wyrm/
-├── README.md           # This file
-├── hoard.md            # 🐉 Project knowledge (the dragon's treasure)
-├── chronicles.md       # 📜 Session history (tales of old)
-├── quests.md           # ⚔️ Mission queue (battles to fight)
-├── protocol.md         # 🔥 AI operating guidelines
-└── templates/          # Empty templates for new projects
-    ├── hoard.template.md
-    ├── chronicles.template.md
-    └── quests.template.md
-```
+### 2. Start the HTTP Server (Optional)
 
-## The Dragon's Hoard
+\`\`\`bash
+wyrm  # Starts on http://localhost:3333
+\`\`\`
 
-Your `hoard.md` contains the knowledge the wyrm guards:
+### 3. Scan Your Projects
 
-```markdown
-# 🐉 Wyrm Hoard
+In Copilot Chat:
+\`\`\`
+@wyrm Scan /home/user/projects for git repositories
+\`\`\`
 
-## Project
-- Name, stack, repo URLs
+## Commands
 
-## Architecture  
-- Key files, database, APIs
+| Command | Description |
+|---------|-------------|
+| \`wyrm-mcp\` | Start MCP server (stdio mode for AI tools) |
+| \`wyrm\` | Start HTTP API server on port 3333 |
+| \`wyrm-deploy <path>\` | Deploy Wyrm to all projects in a folder |
 
-## Credentials
-- Dev passwords, API keys (local only!)
+## MCP Tools
 
-## Decisions
-- ADRs, why things are the way they are
-```
+### Project Management
+- \`wyrm_scan_projects\` - Discover git projects in a directory
+- \`wyrm_list_projects\` - List all registered projects
+- \`wyrm_project_context\` - Get full context for a project
+- \`wyrm_global_context\` - Overview of all projects
 
-## Chronicles
+### Session Management
+- \`wyrm_session_start\` - Start or continue a session
+- \`wyrm_session_update\` - Update with completed work
 
-The `chronicles.md` records every session:
+### Quest Management
+- \`wyrm_quest_add\` - Add a task with priority
+- \`wyrm_quest_complete\` - Mark task as done
+- \`wyrm_all_quests\` - List pending tasks across projects
 
-```markdown
-## Session: 2026-02-04
+### Data Lake
+- \`wyrm_data_insert\` - Store data points
+- \`wyrm_data_batch_insert\` - Bulk insert data
+- \`wyrm_data_query\` - Query stored data
 
-### Quests Completed
-- Fixed authentication bug
-- Added rate limiting
+### Search & Maintenance
+- \`wyrm_search\` - Full-text search across all data
+- \`wyrm_sync\` - Sync database with \`.wyrm/\` folders
+- \`wyrm_stats\` - Database statistics
+- \`wyrm_maintenance\` - Vacuum and archive
 
-### Commits
-- `abc123` - Fix auth flow
+## HTTP API
 
-### Files Changed
-- src/auth.js
-- config/security.js
-```
+\`\`\`
+GET  /api/health              - Health check
+GET  /api/stats               - Database statistics
+GET  /api/projects            - List projects
+POST /api/scan                - Scan for projects
+GET  /api/project/:path       - Get project context
+POST /api/session/start       - Start session
+POST /api/session/update      - Update session
+POST /api/quest               - Add quest
+POST /api/data                - Insert data
+GET  /api/search?q=...        - Search
+\`\`\`
 
-## Why "Wyrm"?
+## Project Structure
 
-In mythology, **wyrms** are ancient dragons - serpentine, wise, and immortal. They guard hoards of treasure accumulated over centuries.
+\`\`\`
+project/
+└── .wyrm/
+    ├── hoard.md        # 🐉 Project knowledge
+    ├── chronicles.md   # 📜 Session history
+    ├── quests.md       # ⚔️ Task queue
+    └── protocol.md     # 🔥 AI guidelines
+\`\`\`
 
-Your AI's context is treasure. Without it, every session starts from zero. **Wyrm** ensures the dragon remembers.
+## Architecture
 
-## Example
+\`\`\`
+┌─────────────────────────────────────────────────────────┐
+│                    AI Assistant                         │
+│              (Claude, GPT, Copilot)                     │
+└─────────────────────┬───────────────────────────────────┘
+                      │ MCP Protocol
+                      ▼
+┌─────────────────────────────────────────────────────────┐
+│                  Wyrm MCP Server                        │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐     │
+│  │   Logger    │  │   Crypto    │  │    Sync     │     │
+│  └─────────────┘  └─────────────┘  └─────────────┘     │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │               SQLite Database                    │   │
+│  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌───────┐  │   │
+│  │  │Projects │ │Sessions │ │ Quests  │ │  FTS  │  │   │
+│  │  └─────────┘ └─────────┘ └─────────┘ └───────┘  │   │
+│  └─────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────┘
+\`\`\`
 
-See [examples/dragonscale/](examples/dragonscale/) for a real-world example from an active project.
+## Security
 
-## Part of Ghost Protocol
+- **Local-Only**: All data stored locally by default
+- **AES-256-GCM**: Optional encryption for sensitive data
+- **No Telemetry**: Zero data collection
+- **MIT Licensed**: Open source and auditable
 
-Wyrm is a [ghosts-lk](https://github.com/ghosts-lk) project.
+## License
 
-```
-👻 Ghost Protocol
-├── DragonScale  - Restaurant ordering system
-├── Wyrm         - AI memory system (you are here)
-└── ...more to come
-```
+MIT License - see [LICENSE](LICENSE) for details.
+
+## Credits
+
+Developed by [Ghost Protocol](https://ghosts.lk)
 
 ---
 
-*The wyrm sleeps, but never forgets.* 🐉
+<p align="center">
+  <sub>The dragon remembers. 🐉</sub>
+</p>
