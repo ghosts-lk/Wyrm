@@ -1,0 +1,21 @@
+# 🐉 Wyrm HTTP API Systemd Service
+# Install: sudo cp wyrm-http.service /etc/systemd/system/
+# Enable:  sudo systemctl enable wyrm-http
+# Start:   sudo systemctl start wyrm-http
+
+[Unit]
+Description=Wyrm HTTP API Server for LLM Integration
+After=network.target
+
+[Service]
+Type=simple
+User=kami
+WorkingDirectory=/home/kami/Git Projects/Wyrm/packages/mcp-server
+ExecStart=/usr/bin/node dist/http-server.js
+Restart=always
+RestartSec=10
+Environment=WYRM_PORT=3333
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,22 @@
+{
+  "// INSTRUCTIONS": "Add this to your VS Code User Settings (settings.json) or use workspace settings",
+  "// LOCATION": "~/.config/Code/User/settings.json",
+  
+  "mcp": {
+    "servers": {
+      "wyrm": {
+        "command": "node",
+        "args": ["/home/kami/Git Projects/Wyrm/packages/mcp-server/dist/index.js"],
+        "env": {
+          "WYRM_DB": "/home/kami/.wyrm/wyrm.db"
+        }
+      }
+    }
+  },
+  
+  "github.copilot.chat.codeGeneration.instructions": [
+    {
+      "text": "You have access to Wyrm, a persistent memory system. Available tools: wyrm_scan_projects, wyrm_list_projects, wyrm_project_context, wyrm_global_context, wyrm_session_start, wyrm_session_update, wyrm_quest_add, wyrm_quest_complete, wyrm_all_quests, wyrm_data_insert, wyrm_data_query, wyrm_search, wyrm_stats. Use these to remember context across sessions."
+    }
+  ]
+}

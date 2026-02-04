@@ -1,0 +1,58 @@
+{
+  "name": "🐉 Wyrm Memory",
+  "description": "LM Studio preset with Wyrm persistent memory",
+  "systemPrompt": "You are an AI assistant with persistent memory powered by Wyrm.\n\nBEFORE starting any work, fetch your memory:\ncurl http://localhost:3333/llm-context\n\nThis returns:\n- All tracked projects and their status\n- Pending quests/tasks\n- Recent session summaries\n- Global context\n\nFor project-specific context:\ncurl http://localhost:3333/llm-context?projectPath=/path/to/project\n\nAFTER completing work, save your progress:\ncurl -X POST http://localhost:3333/sessions/update -d '{\"sessionId\": 1, \"content\": \"What was done\"}'\n\nYou have INFINITE memory. Everything is stored in the Wyrm database.",
+  "temperature": 0.7,
+  "maxTokens": 4096,
+  "contextLength": 8192,
+  "stopStrings": [],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "wyrm_get_context",
+        "description": "Get Wyrm memory context for current project",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "projectPath": {
+              "type": "string",
+              "description": "Path to the project"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "wyrm_save_session",
+        "description": "Save session notes to Wyrm memory",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "sessionId": { "type": "number" },
+            "content": { "type": "string" }
+          },
+          "required": ["sessionId", "content"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "wyrm_add_quest",
+        "description": "Add a new quest/task to track",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "projectPath": { "type": "string" },
+            "title": { "type": "string" },
+            "priority": { "type": "string", "enum": ["low", "medium", "high", "critical"] }
+          },
+          "required": ["projectPath", "title"]
+        }
+      }
+    }
+  ]
+}

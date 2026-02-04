@@ -814,8 +814,8 @@ export class WyrmDB {
     tokens: number;
   } {
     const sessions = this.db.prepare('SELECT COUNT(*) as count FROM sessions WHERE project_id = ?').get(projectId) as { count: number };
-    const pendingQuests = this.db.prepare('SELECT COUNT(*) as count FROM quests WHERE project_id = ? AND status IN ("pending", "in_progress")').get(projectId) as { count: number };
-    const completedQuests = this.db.prepare('SELECT COUNT(*) as count FROM quests WHERE project_id = ? AND status = "completed"').get(projectId) as { count: number };
+    const pendingQuests = this.db.prepare(`SELECT COUNT(*) as count FROM quests WHERE project_id = ? AND status IN ('pending', 'in_progress')`).get(projectId) as { count: number };
+    const completedQuests = this.db.prepare(`SELECT COUNT(*) as count FROM quests WHERE project_id = ? AND status = 'completed'`).get(projectId) as { count: number };
     const dataPoints = this.db.prepare('SELECT COUNT(*) as count FROM data_lake WHERE project_id = ?').get(projectId) as { count: number };
     const tokens = this.db.prepare('SELECT COALESCE(SUM(tokens_estimate), 0) as total FROM sessions WHERE project_id = ? AND is_archived = 0').get(projectId) as { total: number };
     
