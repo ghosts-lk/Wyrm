@@ -114,15 +114,19 @@ In mythology, **wyrms** are ancient dragons - serpentine, wise, and immortal. Th
 
 Your AI's context is treasure. Without it, every session starts from zero. **Wyrm** ensures the dragon remembers.
 
+## Example
+
+See [examples/dragonscale/](examples/dragonscale/) for a real-world example from an active project.
+
 ## Part of Ghost Protocol
 
 Wyrm is a [ghosts-lk](https://github.com/ghosts-lk) project.
 
 ```
-   👻 Ghost Protocol
-   ├── DragonScale  - Restaurant ordering system
-   ├── Wyrm         - AI memory system (you are here)
-   └── ...more to come
+👻 Ghost Protocol
+├── DragonScale  - Restaurant ordering system
+├── Wyrm         - AI memory system (you are here)
+└── ...more to come
 ```
 
 ---
