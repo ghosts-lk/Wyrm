@@ -1,0 +1,17 @@
+# Wyrm - Ignore patterns
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Don't ignore the templates
+!templates/
