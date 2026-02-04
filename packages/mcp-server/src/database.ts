@@ -1,12 +1,16 @@
 /**
  * Wyrm Database - SQLite storage for infinite memory with data lake support
  * 
+ * @copyright 2026 Ghost Protocol (Pvt) Ltd. All Rights Reserved.
+ * @license Proprietary - See LICENSE file for details.
+ * 
  * Features:
  * - Auto-discovers projects in configured directories
  * - Handles large datasets with pagination and streaming
  * - Write-Ahead Logging (WAL) for concurrent performance
  * - Full-text search for fast context retrieval
  * - Batch operations for bulk imports
+ * - Resilient operations with automatic recovery
  */
 
 import Database from 'better-sqlite3';
@@ -14,6 +18,8 @@ import { existsSync, mkdirSync, readdirSync, statSync } from 'fs';
 import { homedir } from 'os';
 import { join, basename, resolve, normalize, sep } from 'path';
 import { spawnSync } from 'child_process';
+import { ResilienceManager, getResilienceManager } from './resilience.js';
+import { WyrmLogger } from './logger.js';
 
 export interface Project {
   id: number;
@@ -82,6 +88,9 @@ export interface WatchDir {
 export class WyrmDB {
   private db: Database.Database;
   private readonly BATCH_SIZE = 1000;
+  private resilience: ResilienceManager;
+  private logger: WyrmLogger;
+  private dbPath: string;
   
   constructor(dbPath?: string) {
     const wyrmDir = join(homedir(), '.wyrm');
@@ -89,16 +98,66 @@ export class WyrmDB {
       mkdirSync(wyrmDir, { recursive: true });
     }
     
-    const path = dbPath || join(wyrmDir, 'wyrm.db');
-    this.db = new Database(path);
+    this.dbPath = dbPath || join(wyrmDir, 'wyrm.db');
+    this.logger = new WyrmLogger();
+    this.resilience = getResilienceManager();
     
-    // Enable WAL mode for better concurrent performance
+    // Initialize database with resilience
+    this.db = this.initializeDatabase(this.dbPath);
+    
+    // Enable WAL mode for better concurrent performance and crash recovery
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('synchronous = NORMAL');
     this.db.pragma('cache_size = -64000'); // 64MB cache
     this.db.pragma('temp_store = MEMORY');
+    this.db.pragma('busy_timeout = 5000'); // Wait 5s for locks
     
     this.init();
+    
+    // Recover any incomplete operations from previous session
+    this.recoverIncompleteOperations();
+  }
+  
+  /**
+   * Initialize database with retry logic for handling corruption/locks
+   */
+  private initializeDatabase(path: string): Database.Database {
+    const result = this.resilience.withRetrySync(
+      () => new Database(path),
+      'database_init',
+      { maxAttempts: 3, baseDelayMs: 500 }
+    );
+    
+    if (!result.success) {
+      this.logger.error('Failed to initialize database', { path, error: result.error?.message });
+      throw result.error || new Error('Database initialization failed');
+    }
+    
+    return result.data!;
+  }
+  
+  /**
+   * Recover incomplete operations from previous session
+   */
+  private recoverIncompleteOperations(): void {
+    const incomplete = this.resilience.getIncompleteOperations();
+    
+    for (const op of incomplete) {
+      this.logger.warn('Found incomplete operation from previous session', {
+        operation: op.operation,
+        stage: op.stage,
+        id: op.id,
+      });
+      
+      // For now, just log - specific recovery logic can be added
+      // based on operation type
+      if (op.operation === 'batch_insert') {
+        this.logger.info('Batch insert was incomplete - data may need re-import');
+      }
+      
+      // Mark as handled
+      this.resilience.completeCheckpoint(op.id);
+    }
   }
   
   private init() {
@@ -442,22 +501,33 @@ export class WyrmDB {
       (data.objectives || '') + (data.completed || '') + (data.issues || '') + (data.notes || '')
     );
     
-    const stmt = this.db.prepare(`
-      INSERT INTO sessions (project_id, date, objectives, completed, issues, commits, files_changed, notes, tokens_estimate)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      RETURNING *
-    `);
-    return stmt.get(
-      projectId,
-      data.date || new Date().toISOString().split('T')[0],
-      data.objectives || '',
-      data.completed || '',
-      data.issues || '',
-      data.commits || '',
-      data.files_changed || '',
-      data.notes || '',
-      tokensEstimate
-    ) as Session;
+    const result = this.resilience.withRetrySync(
+      () => {
+        const stmt = this.db.prepare(`
+          INSERT INTO sessions (project_id, date, objectives, completed, issues, commits, files_changed, notes, tokens_estimate)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          RETURNING *
+        `);
+        return stmt.get(
+          projectId,
+          data.date || new Date().toISOString().split('T')[0],
+          data.objectives || '',
+          data.completed || '',
+          data.issues || '',
+          data.commits || '',
+          data.files_changed || '',
+          data.notes || '',
+          tokensEstimate
+        ) as Session;
+      },
+      'createSession'
+    );
+    
+    if (!result.success) {
+      throw result.error || new Error('Failed to create session');
+    }
+    
+    return result.data!;
   }
   
   updateSession(id: number, data: Partial<Session>): Session {
@@ -489,10 +559,22 @@ export class WyrmDB {
     }
     
     values.push(id);
-    const stmt = this.db.prepare(`
-      UPDATE sessions SET ${updates.join(', ')} WHERE id = ? RETURNING *
-    `);
-    return stmt.get(...values) as Session;
+    
+    const result = this.resilience.withRetrySync(
+      () => {
+        const stmt = this.db.prepare(`
+          UPDATE sessions SET ${updates.join(', ')} WHERE id = ? RETURNING *
+        `);
+        return stmt.get(...values) as Session;
+      },
+      'updateSession'
+    );
+    
+    if (!result.success) {
+      throw result.error || new Error('Failed to update session');
+    }
+    
+    return result.data!;
   }
   
   getSession(id: number): Session | undefined {
@@ -688,35 +770,105 @@ export class WyrmDB {
   // ==================== DATA LAKE ====================
   
   insertData(projectId: number, category: string, key: string, value: string, metadata?: Record<string, unknown>): DataPoint {
-    return this.db.prepare(`
-      INSERT INTO data_lake (project_id, category, key, value, metadata)
-      VALUES (?, ?, ?, ?, ?)
-      RETURNING *
-    `).get(projectId, category, key, value, metadata ? JSON.stringify(metadata) : null) as DataPoint;
+    const result = this.resilience.withRetrySync(
+      () => this.db.prepare(`
+        INSERT INTO data_lake (project_id, category, key, value, metadata)
+        VALUES (?, ?, ?, ?, ?)
+        RETURNING *
+      `).get(projectId, category, key, value, metadata ? JSON.stringify(metadata) : null) as DataPoint,
+      'insertData'
+    );
+    
+    if (!result.success) {
+      throw result.error || new Error('Insert data failed');
+    }
+    
+    return result.data!;
   }
   
+  /**
+   * Batch insert with resilience - uses checkpointing for large batches
+   */
   insertDataBatch(data: Array<{ projectId: number; category: string; key: string; value: string; metadata?: Record<string, unknown> }>): number {
+    const operationId = this.resilience.generateOperationId('batch_insert');
+    const batchSize = this.BATCH_SIZE;
+    let totalInserted = 0;
+    
+    // Checkpoint for recovery
+    this.resilience.createCheckpoint(operationId, 'batch_insert', 'started', {
+      totalItems: data.length,
+      batchSize,
+    });
+    
     const insert = this.db.prepare(`
       INSERT INTO data_lake (project_id, category, key, value, metadata)
       VALUES (?, ?, ?, ?, ?)
     `);
     
-    const insertMany = this.db.transaction((items: typeof data) => {
-      let count = 0;
-      for (const item of items) {
-        insert.run(
-          item.projectId, 
-          item.category, 
-          item.key, 
-          item.value, 
-          item.metadata ? JSON.stringify(item.metadata) : null
+    try {
+      // Process in batches for large datasets
+      for (let i = 0; i < data.length; i += batchSize) {
+        const batch = data.slice(i, i + batchSize);
+        const batchNum = Math.floor(i / batchSize) + 1;
+        
+        this.resilience.updateCheckpoint(operationId, `batch_${batchNum}`, {
+          processed: i,
+          currentBatch: batchNum,
+        });
+        
+        // Transaction for each batch
+        const result = this.resilience.withRetrySync(
+          () => {
+            const insertBatch = this.db.transaction((items: typeof batch) => {
+              let count = 0;
+              for (const item of items) {
+                insert.run(
+                  item.projectId,
+                  item.category,
+                  item.key,
+                  item.value,
+                  item.metadata ? JSON.stringify(item.metadata) : null
+                );
+                count++;
+              }
+              return count;
+            });
+            return insertBatch(batch);
+          },
+          `batch_insert_${batchNum}`,
+          { maxAttempts: 3 }
         );
-        count++;
+        
+        if (!result.success) {
+          this.logger.error('Batch insert failed', {
+            batch: batchNum,
+            processed: totalInserted,
+            error: result.error?.message,
+          });
+          // Return what was successfully inserted
+          this.resilience.updateCheckpoint(operationId, 'partial_failure', {
+            inserted: totalInserted,
+            failedAt: i,
+          });
+          return totalInserted;
+        }
+        
+        totalInserted += result.data!;
       }
-      return count;
-    });
-    
-    return insertMany(data);
+      
+      this.resilience.completeCheckpoint(operationId);
+      return totalInserted;
+    } catch (error) {
+      this.logger.error('Batch insert exception', {
+        inserted: totalInserted,
+        error: (error as Error).message,
+      });
+      this.resilience.updateCheckpoint(operationId, 'exception', {
+        inserted: totalInserted,
+        error: (error as Error).message,
+      });
+      return totalInserted;
+    }
   }
   
   queryData(projectId: number, category?: string, limit = 100, offset = 0): DataPoint[] {
@@ -860,8 +1012,82 @@ export class WyrmDB {
     this.db.pragma('wal_checkpoint(TRUNCATE)');
   }
   
+  /**
+   * Get resilience status for monitoring
+   */
+  getResilienceStatus(): {
+    circuitState: string;
+    failures: number;
+    incompleteOps: number;
+  } {
+    const circuit = this.resilience.getCircuitStatus();
+    const incomplete = this.resilience.getIncompleteOperations();
+    
+    return {
+      circuitState: circuit.state,
+      failures: circuit.failures,
+      incompleteOps: incomplete.length,
+    };
+  }
+  
+  /**
+   * Reset circuit breaker (manual recovery)
+   */
+  resetCircuitBreaker(): void {
+    this.resilience.resetCircuit();
+  }
+  
+  /**
+   * Safe close with WAL checkpoint and cleanup
+   */
   close(): void {
-    this.checkpoint();
-    this.db.close();
+    try {
+      // Checkpoint WAL to ensure all data is persisted
+      this.checkpoint();
+      this.logger.info('Database checkpoint completed');
+    } catch (error) {
+      this.logger.error('Checkpoint failed during close', {
+        error: (error as Error).message,
+      });
+    }
+    
+    try {
+      this.db.close();
+      this.logger.info('Database closed successfully');
+    } catch (error) {
+      this.logger.error('Database close failed', {
+        error: (error as Error).message,
+      });
+    }
+  }
+  
+  /**
+   * Check database integrity
+   */
+  checkIntegrity(): { ok: boolean; issues: string[] } {
+    const issues: string[] = [];
+    
+    try {
+      const result = this.db.pragma('integrity_check', { simple: true }) as string;
+      if (result !== 'ok') {
+        issues.push(`Integrity check failed: ${result}`);
+      }
+    } catch (error) {
+      issues.push(`Integrity check error: ${(error as Error).message}`);
+    }
+    
+    try {
+      const fk = this.db.pragma('foreign_key_check') as unknown[];
+      if (fk.length > 0) {
+        issues.push(`Foreign key violations: ${fk.length}`);
+      }
+    } catch (error) {
+      issues.push(`FK check error: ${(error as Error).message}`);
+    }
+    
+    return {
+      ok: issues.length === 0,
+      issues,
+    };
   }
 }
