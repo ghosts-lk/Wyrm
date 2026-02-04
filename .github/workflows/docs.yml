@@ -1,0 +1,67 @@
+name: Documentation
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'docs/**'
+      - 'README.md'
+      - 'packages/mcp-server/src/**'
+  workflow_dispatch:
+
+jobs:
+  build-docs:
+    name: Build Documentation
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+      
+      - name: Generate API docs
+        working-directory: ./packages/mcp-server
+        run: |
+          npm ci
+          npx typedoc --out ../../docs/api src/index.ts || echo "TypeDoc not configured yet"
+      
+      - name: Build documentation site
+        run: |
+          mkdir -p docs-site
+          cp README.md docs-site/index.md
+          cp -r docs/* docs-site/ || true
+          cp -r examples docs-site/ || true
+      
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        if: github.ref == 'refs/heads/main'
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs-site
+          publish_branch: gh-pages
+          cname: wyrm.ghosts.lk
+
+  validate-readme:
+    name: Validate README
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Check README links
+        run: |
+          npm install -g markdown-link-check
+          markdown-link-check README.md --config .github/markdown-link-check.json || true
+      
+      - name: Validate code examples
+        run: |
+          # Extract bash code blocks from README
+          awk '/```bash/,/```/' README.md | grep -v '```' > readme-examples.sh || true
+          if [ -s readme-examples.sh ]; then
+            bash -n readme-examples.sh || echo "Some examples may have syntax issues"
+          fi

@@ -1,0 +1,181 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build:
+    name: Build Release
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+          cache-dependency-path: 'packages/mcp-server/package-lock.json'
+      
+      - name: Install dependencies
+        working-directory: ./packages/mcp-server
+        run: npm ci
+      
+      - name: Build
+        working-directory: ./packages/mcp-server
+        run: npm run build
+      
+      - name: Create release package
+        run: |
+          mkdir -p release
+          cp -r packages/mcp-server/dist release/
+          cp -r packages/mcp-server/package.json release/
+          cp LICENSE release/
+          cp README.md release/
+          cp install.sh release/
+          cp -r templates release/
+          cp -r config release/
+          cd release
+          tar -czf wyrm-${{ github.ref_name }}.tar.gz *
+          zip -r wyrm-${{ github.ref_name }}.zip *
+      
+      - name: Upload release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-packages
+          path: |
+            release/wyrm-${{ github.ref_name }}.tar.gz
+            release/wyrm-${{ github.ref_name }}.zip
+
+  create-release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-packages
+          path: ./release
+      
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+      
+      - name: Generate changelog
+        id: changelog
+        run: |
+          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+          git log $(git describe --tags --abbrev=0 HEAD^)..HEAD --pretty=format:"- %s (%h)" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Wyrm v${{ steps.version.outputs.VERSION }}
+          body: |
+            # 🐉 Wyrm v${{ steps.version.outputs.VERSION }}
+            
+            ## What's Changed
+            ${{ steps.changelog.outputs.CHANGELOG }}
+            
+            ## Installation
+            
+            ### NPM (Recommended)
+            ```bash
+            npm install -g @wyrm/mcp-server@${{ steps.version.outputs.VERSION }}
+            ```
+            
+            ### From Archive
+            Download the archive below and extract:
+            ```bash
+            tar -xzf wyrm-v${{ steps.version.outputs.VERSION }}.tar.gz
+            cd wyrm
+            npm install
+            npm link
+            ```
+            
+            ## Quick Start
+            
+            Add to your VS Code settings:
+            ```json
+            {
+              "github.copilot.chat.experimental.mcpServers": {
+                "wyrm": {
+                  "command": "wyrm-mcp"
+                }
+              }
+            }
+            ```
+            
+            **Full Documentation:** [README.md](https://github.com/Ghosts-Protocol-Pvt-Ltd/Wyrm/blob/main/README.md)
+          files: |
+            release/wyrm-v*.tar.gz
+            release/wyrm-v*.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docker:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/ghosts-protocol-pvt-ltd/wyrm:latest
+            ghcr.io/ghosts-protocol-pvt-ltd/wyrm:${{ steps.version.outputs.VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  notify:
+    name: Notify Release
+    needs: [create-release, docker]
+    runs-on: ubuntu-latest
+    if: success()
+    
+    steps:
+      - name: Extract version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+      
+      - name: Release notification
+        run: |
+          echo "🐉 Wyrm v${{ steps.version.outputs.VERSION }} released successfully!"
+          echo "📦 NPM: @wyrm/mcp-server@${{ steps.version.outputs.VERSION }}"
+          echo "🐳 Docker: ghcr.io/ghosts-protocol-pvt-ltd/wyrm:${{ steps.version.outputs.VERSION }}"

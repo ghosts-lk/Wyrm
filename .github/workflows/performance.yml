@@ -1,0 +1,217 @@
+name: Performance
+
+on:
+  push:
+    branches: [ main, dev ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run performance tests every Sunday at 3:00 UTC
+    - cron: '0 3 * * 0'
+
+jobs:
+  benchmark:
+    name: Benchmark Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+          cache-dependency-path: 'packages/mcp-server/package-lock.json'
+      
+      - name: Install dependencies
+        working-directory: ./packages/mcp-server
+        run: npm ci
+      
+      - name: Build
+        working-directory: ./packages/mcp-server
+        run: npm run build
+      
+      - name: Create benchmark script
+        run: |
+          cat > benchmark.js << 'EOF'
+          const { performance } = require('perf_hooks');
+          const Database = require('better-sqlite3');
+          const fs = require('fs');
+          
+          console.log('🐉 Wyrm Performance Benchmark\n');
+          
+          // Create test database
+          const db = new Database(':memory:');
+          
+          // Session creation benchmark
+          db.exec(`
+            CREATE TABLE sessions (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              data TEXT,
+              timestamp INTEGER
+            );
+            CREATE INDEX idx_timestamp ON sessions(timestamp);
+          `);
+          
+          const insertStmt = db.prepare('INSERT INTO sessions (data, timestamp) VALUES (?, ?)');
+          
+          console.log('📊 Session Insert Performance:');
+          const start1 = performance.now();
+          const insert = db.transaction(() => {
+            for (let i = 0; i < 1000; i++) {
+              insertStmt.run(JSON.stringify({ test: 'data', iteration: i }), Date.now());
+            }
+          });
+          insert();
+          const end1 = performance.now();
+          console.log(`  1,000 inserts: ${(end1 - start1).toFixed(2)}ms`);
+          console.log(`  Avg per insert: ${((end1 - start1) / 1000).toFixed(4)}ms\n`);
+          
+          // Query performance
+          const selectStmt = db.prepare('SELECT * FROM sessions WHERE timestamp > ?');
+          
+          console.log('📊 Query Performance:');
+          const start2 = performance.now();
+          for (let i = 0; i < 100; i++) {
+            selectStmt.all(Date.now() - 60000);
+          }
+          const end2 = performance.now();
+          console.log(`  100 queries: ${(end2 - start2).toFixed(2)}ms`);
+          console.log(`  Avg per query: ${((end2 - start2) / 100).toFixed(4)}ms\n`);
+          
+          // Full-text search setup
+          db.exec(`
+            CREATE VIRTUAL TABLE sessions_fts USING fts5(content);
+          `);
+          
+          const ftsInsert = db.prepare('INSERT INTO sessions_fts (content) VALUES (?)');
+          const ftsInsertBatch = db.transaction(() => {
+            for (let i = 0; i < 1000; i++) {
+              ftsInsert.run(`This is test content number ${i} with various keywords like database, performance, and testing`);
+            }
+          });
+          
+          console.log('📊 FTS5 Insert Performance:');
+          const start3 = performance.now();
+          ftsInsertBatch();
+          const end3 = performance.now();
+          console.log(`  1,000 FTS inserts: ${(end3 - start3).toFixed(2)}ms\n`);
+          
+          // FTS search
+          const ftsSearch = db.prepare('SELECT * FROM sessions_fts WHERE content MATCH ?');
+          
+          console.log('📊 FTS5 Search Performance:');
+          const start4 = performance.now();
+          for (let i = 0; i < 100; i++) {
+            ftsSearch.all('database AND performance');
+          }
+          const end4 = performance.now();
+          console.log(`  100 FTS searches: ${(end4 - start4).toFixed(2)}ms`);
+          console.log(`  Avg per search: ${((end4 - start4) / 100).toFixed(4)}ms\n`);
+          
+          db.close();
+          console.log('✅ Benchmark complete');
+          EOF
+      
+      - name: Run benchmark
+        working-directory: ./packages/mcp-server
+        run: node ../../benchmark.js
+      
+      - name: Performance summary
+        run: |
+          echo "## Performance Benchmark Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Benchmark completed successfully. See job logs for detailed metrics." >> $GITHUB_STEP_SUMMARY
+
+  load-test:
+    name: Load Testing
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+      
+      - name: Install dependencies
+        working-directory: ./packages/mcp-server
+        run: npm ci
+      
+      - name: Build
+        working-directory: ./packages/mcp-server
+        run: npm run build
+      
+      - name: Create load test
+        run: |
+          cat > load-test.js << 'EOF'
+          const { performance } = require('perf_hooks');
+          const Database = require('better-sqlite3');
+          
+          console.log('🐉 Wyrm Load Test\n');
+          
+          const db = new Database(':memory:');
+          
+          db.exec(`
+            CREATE TABLE large_dataset (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              data TEXT,
+              metadata TEXT,
+              timestamp INTEGER
+            );
+            CREATE INDEX idx_large_timestamp ON large_dataset(timestamp);
+            CREATE VIRTUAL TABLE large_fts USING fts5(data, metadata);
+          `);
+          
+          console.log('📊 Loading 10,000 records...');
+          const start = performance.now();
+          
+          const insert = db.prepare('INSERT INTO large_dataset (data, metadata, timestamp) VALUES (?, ?, ?)');
+          const ftsInsert = db.prepare('INSERT INTO large_fts (data, metadata) VALUES (?, ?)');
+          
+          const bulkInsert = db.transaction(() => {
+            for (let i = 0; i < 10000; i++) {
+              const data = JSON.stringify({ 
+                session: `session-${i}`, 
+                quest: `quest-${i % 100}`,
+                content: `This is test data for record ${i} with various metadata`
+              });
+              const metadata = JSON.stringify({ tags: ['test', 'load'], priority: i % 5 });
+              insert.run(data, metadata, Date.now());
+              ftsInsert.run(data, metadata);
+            }
+          });
+          
+          bulkInsert();
+          const end = performance.now();
+          
+          console.log(`✅ Loaded 10,000 records in ${(end - start).toFixed(2)}ms`);
+          console.log(`  Avg per record: ${((end - start) / 10000).toFixed(4)}ms`);
+          
+          // Query performance on large dataset
+          console.log('\n📊 Query performance on large dataset...');
+          const query = db.prepare('SELECT * FROM large_dataset ORDER BY timestamp DESC LIMIT 100');
+          const qStart = performance.now();
+          const results = query.all();
+          const qEnd = performance.now();
+          console.log(`  Retrieved 100 records in ${(qEnd - qStart).toFixed(4)}ms`);
+          
+          // FTS performance on large dataset
+          console.log('\n📊 FTS performance on large dataset...');
+          const ftsQuery = db.prepare('SELECT * FROM large_fts WHERE large_fts MATCH ? LIMIT 100');
+          const fStart = performance.now();
+          const ftsResults = ftsQuery.all('session AND quest');
+          const fEnd = performance.now();
+          console.log(`  FTS search in ${(fEnd - fStart).toFixed(4)}ms`);
+          
+          db.close();
+          console.log('\n✅ Load test complete');
+          EOF
+      
+      - name: Run load test
+        working-directory: ./packages/mcp-server
+        run: node ../../load-test.js

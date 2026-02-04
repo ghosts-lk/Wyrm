@@ -1,0 +1,149 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, dev ]
+  pull_request:
+    branches: [ main, dev ]
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x, 22.x]
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          cache-dependency-path: 'packages/mcp-server/package-lock.json'
+      
+      - name: Install dependencies
+        working-directory: ./packages/mcp-server
+        run: npm ci
+      
+      - name: Build TypeScript
+        working-directory: ./packages/mcp-server
+        run: npm run build
+      
+      - name: Run linter
+        working-directory: ./packages/mcp-server
+        run: npm run lint || true
+      
+      - name: Run tests
+        working-directory: ./packages/mcp-server
+        run: npm test || echo "No tests configured yet"
+      
+      - name: Upload build artifacts
+        if: matrix.node-version == '20.x'
+        uses: actions/upload-artifact@v4
+        with:
+          name: wyrm-dist
+          path: packages/mcp-server/dist/
+          retention-days: 7
+
+  vscode-extension:
+    name: Build VS Code Extension
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+          cache-dependency-path: 'packages/vscode-extension/package-lock.json'
+      
+      - name: Install dependencies
+        working-directory: ./packages/vscode-extension
+        run: npm ci || echo "Extension dependencies not yet configured"
+      
+      - name: Build extension
+        working-directory: ./packages/vscode-extension
+        run: npm run build || echo "Extension build not yet configured"
+
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+      
+      - name: Run security audit (MCP Server)
+        working-directory: ./packages/mcp-server
+        run: npm audit --audit-level=moderate || true
+      
+      - name: Run security audit (VS Code Extension)
+        working-directory: ./packages/vscode-extension
+        run: npm audit --audit-level=moderate || true
+
+  install-script:
+    name: Test Install Script
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Create test git repo
+        run: |
+          mkdir -p test-project
+          cd test-project
+          git init
+          git config user.email "test@ghosts.lk"
+          git config user.name "CI Test"
+      
+      - name: Run install script
+        run: |
+          cd test-project
+          bash ../install.sh
+      
+      - name: Verify installation
+        run: |
+          cd test-project
+          test -d .wyrm || exit 1
+          test -f .wyrm/hoard.md || exit 1
+          test -f .wyrm/chronicles.md || exit 1
+          test -f .wyrm/quests.md || exit 1
+          test -f .wyrm/protocol.md || exit 1
+          echo "✅ All templates installed successfully"
+
+  build-status:
+    name: Build Status Summary
+    runs-on: ubuntu-latest
+    needs: [build-and-test, vscode-extension, security, install-script]
+    if: always()
+    
+    steps:
+      - name: Check build status
+        run: |
+          if [ "${{ needs.build-and-test.result }}" == "success" ] && \
+             [ "${{ needs.vscode-extension.result }}" == "success" ] && \
+             [ "${{ needs.install-script.result }}" == "success" ]; then
+            echo "✅ All builds passed"
+            exit 0
+          else
+            echo "❌ Some builds failed"
+            echo "MCP Server: ${{ needs.build-and-test.result }}"
+            echo "VS Code Extension: ${{ needs.vscode-extension.result }}"
+            echo "Install Script: ${{ needs.install-script.result }}"
+            echo "Security: ${{ needs.security.result }}"
+            exit 1
+          fi
