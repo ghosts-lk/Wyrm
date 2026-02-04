@@ -17,6 +17,11 @@
 [![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/)
 
+[![CI](https://github.com/ghosts-lk/Wyrm/workflows/CI/badge.svg)](https://github.com/ghosts-lk/Wyrm/actions/workflows/ci.yml)
+[![Security](https://github.com/ghosts-lk/Wyrm/workflows/Security/badge.svg)](https://github.com/ghosts-lk/Wyrm/actions/workflows/security.yml)
+[![Integration](https://github.com/ghosts-lk/Wyrm/workflows/Integration%20Tests/badge.svg)](https://github.com/ghosts-lk/Wyrm/actions/workflows/integration.yml)
+[![Performance](https://github.com/ghosts-lk/Wyrm/workflows/Performance/badge.svg)](https://github.com/ghosts-lk/Wyrm/actions/workflows/performance.yml)
+
 ## Overview
 
 **Wyrm** is a persistent memory system for AI-assisted development. It maintains context across chat sessions, enabling AI assistants to remember project details, track work sessions, and manage tasks.
@@ -177,6 +182,32 @@ project/
 - **AES-256-GCM**: Optional encryption for sensitive data
 - **No Telemetry**: Zero data collection
 - **MIT Licensed**: Open source and auditable
+
+## CI/CD & Automation
+
+Wyrm uses GitHub Actions for automated testing, releases, and deployments:
+
+- **Continuous Integration**: Automated builds on Node.js 18, 20, 22
+- **Security Scanning**: Weekly CodeQL analysis and dependency audits
+- **Performance Testing**: Automated benchmarks and load tests
+- **Cross-Platform**: Tested on Ubuntu, macOS, and Windows
+- **Docker**: Automated image builds pushed to GitHub Container Registry
+- **Documentation**: Auto-deployed to GitHub Pages
+
+See [GITHUB_ACTIONS.md](GITHUB_ACTIONS.md) for complete workflow documentation.
+
+### Docker
+
+```bash
+# Pull latest image
+docker pull ghcr.io/ghosts-protocol-pvt-ltd/wyrm:latest
+
+# Run HTTP server
+docker run -p 3333:3333 -v wyrm-data:/data ghcr.io/ghosts-protocol-pvt-ltd/wyrm:latest
+
+# Access API
+curl http://localhost:3333/health
+```
 
 ## License
 
