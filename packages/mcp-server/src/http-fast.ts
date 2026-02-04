@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 /**
  * 🐉 Wyrm Fast API
  * Optimized for AI consumption - minimal latency, compact responses

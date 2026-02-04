@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 /**
  * 🐉 Wyrm HTTP API Server
  * REST API wrapper for local LLMs (Ollama, LM Studio, llama.cpp, etc.)

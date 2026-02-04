@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "wyrm": {
+      "command": "node",
+      "args": ["/home/kami/Git Projects/Wyrm/packages/mcp-server/dist/index.js"],
+      "env": {}
+    }
+  }
+}

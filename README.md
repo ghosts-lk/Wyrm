@@ -40,7 +40,26 @@ Wyrm includes two powerful automation tools:
 
 ## Quick Start
 
-### Option 1: Automated (Recommended)
+### Option 1: Auto-Deploy (Multi-Project)
+
+Automatically scan a folder and deploy Wyrm to all projects:
+
+```bash
+# Run from the Wyrm folder
+./wyrm-deploy.sh /path/to/your/projects
+
+# Or install globally
+sudo ln -sf "$(pwd)/wyrm-deploy.sh" /usr/local/bin/wyrm-deploy
+wyrm-deploy /path/to/your/projects
+```
+
+This will:
+- Scan all subdirectories
+- Detect project types (Next.js, Python, PHP, etc.)
+- Create `.wyrm/` folders with appropriate templates
+- Create a unified workspace-level `.wyrm/` for cross-project memory
+
+### Option 2: MCP Server + VS Code Extension
 
 ```bash
 # Install MCP Server globally
@@ -54,18 +73,19 @@ npm install && npm run compile
 # Then install the .vsix or run in dev mode
 ```
 
-### Option 2: Manual (Markdown Only)
+### Option 3: Manual (Single Project)
 
 ```bash
 # Install in your project
 curl -sSL https://raw.githubusercontent.com/ghosts-lk/Wyrm/main/install.sh | bash
 ```
 
-### Option 3: Git Submodule
+### Option 4: Git Submodule
 
 ```bash
 git submodule add https://github.com/ghosts-lk/Wyrm.git .wyrm
 cd .wyrm && ./install.sh
+```
 
 ## File Structure
 
