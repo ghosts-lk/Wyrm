@@ -1,0 +1,126 @@
+{
+  "name": "wyrm",
+  "displayName": "Wyrm - AI Memory",
+  "description": "Persistent AI memory for VS Code. The dragon remembers.",
+  "version": "1.0.0",
+  "publisher": "ghosts-lk",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Machine Learning"
+  ],
+  "keywords": [
+    "ai",
+    "memory",
+    "context",
+    "copilot",
+    "mcp"
+  ],
+  "activationEvents": [
+    "workspaceContains:.wyrm",
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "wyrm.init",
+        "title": "Wyrm: Initialize Memory"
+      },
+      {
+        "command": "wyrm.showContext",
+        "title": "Wyrm: Show Current Context"
+      },
+      {
+        "command": "wyrm.startSession",
+        "title": "Wyrm: Start Session"
+      },
+      {
+        "command": "wyrm.saveSession",
+        "title": "Wyrm: Save Session"
+      },
+      {
+        "command": "wyrm.addQuest",
+        "title": "Wyrm: Add Task"
+      },
+      {
+        "command": "wyrm.completeQuest",
+        "title": "Wyrm: Complete Task"
+      },
+      {
+        "command": "wyrm.sync",
+        "title": "Wyrm: Sync Memory"
+      }
+    ],
+    "configuration": {
+      "title": "Wyrm",
+      "properties": {
+        "wyrm.autoInjectContext": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically inject project context into AI prompts"
+        },
+        "wyrm.autoSaveOnClose": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically save session when closing workspace"
+        },
+        "wyrm.maxContextTokens": {
+          "type": "number",
+          "default": 4000,
+          "description": "Maximum tokens for context bundle"
+        },
+        "wyrm.mcpServerPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to Wyrm MCP server (auto-detected if empty)"
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "wyrm",
+          "title": "Wyrm",
+          "icon": "resources/dragon.svg"
+        }
+      ]
+    },
+    "views": {
+      "wyrm": [
+        {
+          "id": "wyrm.context",
+          "name": "Context"
+        },
+        {
+          "id": "wyrm.quests",
+          "name": "Quests"
+        },
+        {
+          "id": "wyrm.sessions",
+          "name": "Sessions"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/test-electron": "^2.3.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.20.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "better-sqlite3": "^12.6.2"
+  }
+}

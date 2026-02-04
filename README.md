@@ -8,51 +8,64 @@
 ╚███╔███╔╝   ██║   ██║  ██║██║ ╚═╝ ██║
  ╚══╝╚══╝    ╚═╝   ╚═╝  ╚═╝╚═╝     ╚═╝
     Persistent AI Memory System
-           ghosts-lk
+           ghosts.lk
 ```
 
 > *"The ancient wyrm remembers all. What was spoken, what was built, what remains undone."*
 
 ## What is Wyrm?
 
-**Wyrm** is a persistent memory system for AI-assisted development. It maintains context across chat sessions, so your AI assistant always knows:
+**Wyrm** is a **fully automated, infinite** persistent memory system for AI-assisted development. It maintains context across chat sessions, so your AI assistant always knows:
 
 - 📜 **What the project is** - Architecture, stack, key decisions
 - 🔥 **What was done** - Session history with commits and changes  
 - ⚔️ **What remains** - Prioritized mission queue
 - 🐲 **How to operate** - Project-specific protocols
 
+## 🚀 Automation Features
+
+Wyrm includes two powerful automation tools:
+
+### MCP Server (Model Context Protocol)
+- **Auto-injects** project context into AI conversations
+- **Infinite storage** via SQLite database
+- **Auto-summarizes** old sessions to manage token limits
+- Works with Claude, GPT, and any MCP-compatible AI
+
+### VS Code Extension
+- **Auto-loads** .wyrm folder when you open a project
+- **Auto-saves** sessions when you close the workspace
+- **Sidebar views** for quests, sessions, and context
+- **One-click** commands for common operations
+
 ## Quick Start
 
-### 1. Install Wyrm in Your Project
+### Option 1: Automated (Recommended)
 
 ```bash
-# Clone into your project
-git clone https://github.com/ghosts-lk/Wyrm.git .wyrm
+# Install MCP Server globally
+cd Wyrm/packages/mcp-server
+npm install && npm run build
+npm link
 
-# Or add as submodule
+# Install VS Code Extension
+cd ../vscode-extension
+npm install && npm run compile
+# Then install the .vsix or run in dev mode
+```
+
+### Option 2: Manual (Markdown Only)
+
+```bash
+# Install in your project
+curl -sSL https://raw.githubusercontent.com/ghosts-lk/Wyrm/main/install.sh | bash
+```
+
+### Option 3: Git Submodule
+
+```bash
 git submodule add https://github.com/ghosts-lk/Wyrm.git .wyrm
-```
-
-### 2. Initialize Your Hoard
-
-```bash
-cd .wyrm
-cp templates/hoard.template.md hoard.md
-cp templates/chronicles.template.md chronicles.md
-cp templates/quests.template.md quests.md
-```
-
-### 3. Summon the Wyrm
-
-At the start of each AI session, say:
-
-> "Read the .wyrm folder first"
-
-Or include these files in your context:
-- `.wyrm/hoard.md` - Project state
-- `.wyrm/chronicles.md` - Session history
-- `.wyrm/quests.md` - TODO list
+cd .wyrm && ./install.sh
 
 ## File Structure
 

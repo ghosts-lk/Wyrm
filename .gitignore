@@ -15,3 +15,5 @@ Thumbs.db
 
 # Don't ignore the templates
 !templates/
+node_modules/
+dist/
