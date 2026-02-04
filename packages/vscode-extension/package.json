@@ -2,7 +2,7 @@
   "name": "wyrm",
   "displayName": "Wyrm - AI Memory",
   "description": "Persistent AI memory for VS Code. The dragon remembers.",
-  "version": "1.0.0",
+  "version": "3.0.0",
   "publisher": "ghosts-lk",
   "engines": {
     "vscode": "^1.85.0"
@@ -16,8 +16,15 @@
     "memory",
     "context",
     "copilot",
-    "mcp"
+    "mcp",
+    "claude",
+    "gpt"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Ghosts-Protocol-Pvt-Ltd/Wyrm"
+  },
+  "homepage": "https://ghosts.lk/wyrm",
   "activationEvents": [
     "workspaceContains:.wyrm",
     "onStartupFinished"
