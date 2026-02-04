@@ -1,293 +1,451 @@
 #!/usr/bin/env node
-
 /**
- * Wyrm MCP Server
+ * Wyrm MCP Server - Model Context Protocol for AI memory
  * 
- * Model Context Protocol server that provides:
- * - Automatic project context injection
- * - Session tracking and persistence
- * - Quest/TODO management
- * - Infinite memory through summarization
- * 
- * Tools:
- * - wyrm_context: Get full project context
- * - wyrm_session_start: Start/continue today's session
- * - wyrm_session_update: Update current session
- * - wyrm_quest_add: Add a new task
- * - wyrm_quest_complete: Mark task done
- * - wyrm_search: Search memory
- * 
- * Resources:
- * - wyrm://project/{path}: Project context
- * - wyrm://sessions/{path}: Recent sessions
- * - wyrm://quests/{path}: Pending tasks
+ * Features:
+ * - Auto-discovery of projects in watched directories
+ * - Multi-project tracking with unified context
+ * - Data lake for large dataset storage
+ * - Full-text search across all data
  */
 
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
-  ListResourcesRequestSchema,
-  ReadResourceRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
-import { WyrmDB } from './database.js';
-import { WyrmSync } from './sync.js';
-import { createContextBundle, summarizeSession } from './summarizer.js';
+} from "@modelcontextprotocol/sdk/types.js";
+import { WyrmDB } from "./database.js";
+import { WyrmSync } from "./sync.js";
+import { summarizeSession, createContextBundle } from "./summarizer.js";
 
-// Initialize database
 const db = new WyrmDB();
 const sync = new WyrmSync(db);
 
-// Create server
 const server = new Server(
   {
-    name: 'wyrm',
-    version: '1.0.0',
+    name: "wyrm",
+    version: "2.0.0",
   },
   {
     capabilities: {
       tools: {},
-      resources: {},
     },
   }
 );
 
-// List available tools
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return {
-    tools: [
-      {
-        name: 'wyrm_context',
-        description: 'Get full project context including state, recent sessions, and pending tasks. Call this at the start of every session.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            projectPath: {
-              type: 'string',
-              description: 'Absolute path to the project root',
-            },
-            maxTokens: {
-              type: 'number',
-              description: 'Maximum tokens for context (default: 4000)',
+// Tool definitions
+server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  tools: [
+    // Project Management
+    {
+      name: "wyrm_scan_projects",
+      description: "Scan a directory for git projects and register them. Use this to auto-discover all projects.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "Directory path to scan (e.g., /home/user/Git Projects)" },
+          watch: { type: "boolean", description: "Add to watch list for future auto-scans" },
+          recursive: { type: "boolean", description: "Scan subdirectories recursively" },
+        },
+        required: ["path"],
+      },
+    },
+    {
+      name: "wyrm_list_projects",
+      description: "List all registered projects with their status",
+      inputSchema: {
+        type: "object",
+        properties: {
+          search: { type: "string", description: "Search query to filter projects" },
+          limit: { type: "number", description: "Max projects to return" },
+        },
+      },
+    },
+    {
+      name: "wyrm_project_context",
+      description: "Get full context for a specific project including recent sessions, quests, and stored context",
+      inputSchema: {
+        type: "object",
+        properties: {
+          projectPath: { type: "string", description: "Project path" },
+          projectName: { type: "string", description: "Or project name" },
+        },
+      },
+    },
+    // Multi-Project Overview
+    {
+      name: "wyrm_global_context",
+      description: "Get overview of all projects, pending quests across projects, and global context",
+      inputSchema: {
+        type: "object",
+        properties: {
+          includeQuests: { type: "boolean", description: "Include all pending quests" },
+          maxProjects: { type: "number", description: "Max projects to include" },
+        },
+      },
+    },
+    // Session Management
+    {
+      name: "wyrm_session_start",
+      description: "Start or continue a session for a project",
+      inputSchema: {
+        type: "object",
+        properties: {
+          projectPath: { type: "string", description: "Project path" },
+          objectives: { type: "string", description: "Session objectives" },
+        },
+        required: ["projectPath"],
+      },
+    },
+    {
+      name: "wyrm_session_update",
+      description: "Update the current session with completed work, issues, or notes",
+      inputSchema: {
+        type: "object",
+        properties: {
+          projectPath: { type: "string", description: "Project path" },
+          completed: { type: "string", description: "What was completed" },
+          issues: { type: "string", description: "Any issues encountered" },
+          commits: { type: "string", description: "Git commits made" },
+          notes: { type: "string", description: "Additional notes" },
+        },
+        required: ["projectPath"],
+      },
+    },
+    // Quest Management
+    {
+      name: "wyrm_quest_add",
+      description: "Add a quest (task) to a project",
+      inputSchema: {
+        type: "object",
+        properties: {
+          projectPath: { type: "string", description: "Project path" },
+          title: { type: "string", description: "Quest title" },
+          description: { type: "string", description: "Quest description" },
+          priority: { type: "string", enum: ["critical", "high", "medium", "low"] },
+          tags: { type: "string", description: "Comma-separated tags" },
+        },
+        required: ["projectPath", "title"],
+      },
+    },
+    {
+      name: "wyrm_quest_complete",
+      description: "Mark a quest as completed",
+      inputSchema: {
+        type: "object",
+        properties: {
+          questId: { type: "number", description: "Quest ID" },
+        },
+        required: ["questId"],
+      },
+    },
+    {
+      name: "wyrm_all_quests",
+      description: "Get all pending quests across all projects",
+      inputSchema: {
+        type: "object",
+        properties: {
+          priority: { type: "string", enum: ["critical", "high", "medium", "low"], description: "Filter by priority" },
+        },
+      },
+    },
+    // Data Lake Operations
+    {
+      name: "wyrm_data_insert",
+      description: "Insert data into the data lake for a project",
+      inputSchema: {
+        type: "object",
+        properties: {
+          projectPath: { type: "string", description: "Project path" },
+          category: { type: "string", description: "Data category (e.g., 'logs', 'metrics', 'artifacts')" },
+          key: { type: "string", description: "Data key/identifier" },
+          value: { type: "string", description: "Data value (can be JSON string)" },
+          metadata: { type: "object", description: "Optional metadata object" },
+        },
+        required: ["projectPath", "category", "key", "value"],
+      },
+    },
+    {
+      name: "wyrm_data_batch_insert",
+      description: "Batch insert multiple data points efficiently",
+      inputSchema: {
+        type: "object",
+        properties: {
+          projectPath: { type: "string", description: "Project path" },
+          data: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                category: { type: "string" },
+                key: { type: "string" },
+                value: { type: "string" },
+                metadata: { type: "object" },
+              },
+              required: ["category", "key", "value"],
             },
           },
-          required: ['projectPath'],
+        },
+        required: ["projectPath", "data"],
+      },
+    },
+    {
+      name: "wyrm_data_query",
+      description: "Query data from the data lake",
+      inputSchema: {
+        type: "object",
+        properties: {
+          projectPath: { type: "string", description: "Project path" },
+          category: { type: "string", description: "Filter by category" },
+          search: { type: "string", description: "Full-text search query" },
+          limit: { type: "number", description: "Max results" },
+          offset: { type: "number", description: "Offset for pagination" },
+        },
+        required: ["projectPath"],
+      },
+    },
+    {
+      name: "wyrm_data_categories",
+      description: "List all data categories for a project",
+      inputSchema: {
+        type: "object",
+        properties: {
+          projectPath: { type: "string", description: "Project path" },
+        },
+        required: ["projectPath"],
+      },
+    },
+    // Global Context
+    {
+      name: "wyrm_set_global",
+      description: "Set global context that applies across all projects",
+      inputSchema: {
+        type: "object",
+        properties: {
+          key: { type: "string", description: "Context key" },
+          value: { type: "string", description: "Context value" },
+        },
+        required: ["key", "value"],
+      },
+    },
+    // Search
+    {
+      name: "wyrm_search",
+      description: "Search across all projects, sessions, quests, and data",
+      inputSchema: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Search query" },
+          type: { type: "string", enum: ["all", "sessions", "quests", "data"], description: "What to search" },
+          projectPath: { type: "string", description: "Limit to specific project" },
+        },
+        required: ["query"],
+      },
+    },
+    // Sync & Maintenance
+    {
+      name: "wyrm_sync",
+      description: "Sync database with .wyrm folders in all projects",
+      inputSchema: {
+        type: "object",
+        properties: {
+          projectPath: { type: "string", description: "Sync specific project, or all if not specified" },
+          direction: { type: "string", enum: ["import", "export", "both"], description: "Sync direction" },
         },
       },
-      {
-        name: 'wyrm_session_start',
-        description: 'Start or continue today\'s session. Records objectives.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            projectPath: {
-              type: 'string',
-              description: 'Absolute path to the project root',
-            },
-            objectives: {
-              type: 'string',
-              description: 'What are the goals for this session?',
-            },
-          },
-          required: ['projectPath'],
+    },
+    {
+      name: "wyrm_stats",
+      description: "Get Wyrm database statistics",
+      inputSchema: {
+        type: "object",
+        properties: {},
+      },
+    },
+    {
+      name: "wyrm_maintenance",
+      description: "Run database maintenance (vacuum, archive old sessions)",
+      inputSchema: {
+        type: "object",
+        properties: {
+          vacuum: { type: "boolean", description: "Run vacuum to reclaim space" },
+          archiveDays: { type: "number", description: "Archive sessions older than N days" },
         },
       },
-      {
-        name: 'wyrm_session_update',
-        description: 'Update the current session with completed work, issues solved, commits, etc.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            projectPath: {
-              type: 'string',
-              description: 'Absolute path to the project root',
-            },
-            completed: {
-              type: 'string',
-              description: 'What was completed this session?',
-            },
-            issues: {
-              type: 'string',
-              description: 'What issues were solved?',
-            },
-            commits: {
-              type: 'string',
-              description: 'Commit hashes and messages',
-            },
-            filesChanged: {
-              type: 'string',
-              description: 'List of files modified',
-            },
-            notes: {
-              type: 'string',
-              description: 'Any important notes or gotchas',
-            },
-          },
-          required: ['projectPath'],
-        },
-      },
-      {
-        name: 'wyrm_quest_add',
-        description: 'Add a new task/quest to the queue',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            projectPath: {
-              type: 'string',
-              description: 'Absolute path to the project root',
-            },
-            title: {
-              type: 'string',
-              description: 'Task title',
-            },
-            description: {
-              type: 'string',
-              description: 'Task description',
-            },
-            priority: {
-              type: 'string',
-              enum: ['critical', 'high', 'medium', 'low'],
-              description: 'Task priority',
-            },
-          },
-          required: ['projectPath', 'title'],
-        },
-      },
-      {
-        name: 'wyrm_quest_complete',
-        description: 'Mark a task as completed',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            projectPath: {
-              type: 'string',
-              description: 'Absolute path to the project root',
-            },
-            questId: {
-              type: 'number',
-              description: 'Quest ID to complete',
-            },
-            title: {
-              type: 'string',
-              description: 'Quest title (if ID not known)',
-            },
-          },
-          required: ['projectPath'],
-        },
-      },
-      {
-        name: 'wyrm_sync',
-        description: 'Sync database with .wyrm folder (import/export)',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            projectPath: {
-              type: 'string',
-              description: 'Absolute path to the project root',
-            },
-            direction: {
-              type: 'string',
-              enum: ['import', 'export', 'both'],
-              description: 'Sync direction',
-            },
-          },
-          required: ['projectPath'],
-        },
-      },
-      {
-        name: 'wyrm_stats',
-        description: 'Get Wyrm statistics',
-        inputSchema: {
-          type: 'object',
-          properties: {},
-        },
-      },
-    ],
-  };
-});
+    },
+  ],
+}));
 
-// Handle tool calls
+// Tool implementations
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
-  
+
   try {
     switch (name) {
-      case 'wyrm_context': {
-        const { projectPath, maxTokens = 4000 } = args as { projectPath: string; maxTokens?: number };
+      // ==================== PROJECT MANAGEMENT ====================
+      case "wyrm_scan_projects": {
+        const { path, watch, recursive } = args as { path: string; watch?: boolean; recursive?: boolean };
         
-        // Try to import from .wyrm folder first
-        try {
-          sync.importFromFolder(projectPath);
-        } catch {
-          // No .wyrm folder, that's ok
+        if (watch) {
+          db.addWatchDir(path, recursive !== false);
         }
         
-        const project = db.getProject(projectPath);
-        if (!project) {
-          return {
-            content: [{ type: 'text', text: `No project registered at ${projectPath}. Use wyrm_session_start to initialize.` }],
-          };
-        }
-        
-        const context = db.getAllContext(project.id);
-        const sessions = db.getRecentSessions(project.id, 5);
-        const quests = db.getPendingQuests(project.id);
-        
-        const bundle = createContextBundle(
-          project,
-          context,
-          sessions,
-          quests.map(q => ({ title: q.title, priority: q.priority })),
-          maxTokens
-        );
-        
-        return {
-          content: [{ type: 'text', text: bundle }],
-        };
-      }
-      
-      case 'wyrm_session_start': {
-        const { projectPath, objectives } = args as { projectPath: string; objectives?: string };
-        
-        // Register project if not exists
-        const projectName = projectPath.split('/').pop() || 'Unknown';
-        const project = db.registerProject(projectName, projectPath);
-        
-        // Get or create today's session
-        let session = db.getTodaySession(project.id);
-        if (!session) {
-          session = db.createSession(project.id, { objectives });
-        } else if (objectives) {
-          session = db.updateSession(session.id, { objectives });
-        }
-        
-        // Archive old sessions to keep memory bounded
-        const archived = db.archiveOldSessions(project.id, 10);
+        const projects = db.scanForProjects(path, recursive !== false);
         
         return {
           content: [{
-            type: 'text',
-            text: `Session started for ${project.name} (${session.date}).\n` +
-                  `Objectives: ${session.objectives || 'None set'}\n` +
-                  `${archived > 0 ? `Archived ${archived} old sessions.` : ''}`,
-          }],
+            type: "text",
+            text: `🐉 Scanned ${path}\n\nDiscovered ${projects.length} projects:\n${
+              projects.map(p => `- ${p.name} (${p.stack || 'unknown'}) - ${p.branch || 'no branch'}`).join('\n')
+            }${watch ? '\n\nAdded to watch list for future auto-scans.' : ''}`
+          }]
         };
       }
-      
-      case 'wyrm_session_update': {
-        const { projectPath, completed, issues, commits, filesChanged, notes } = args as {
+
+      case "wyrm_list_projects": {
+        const { search, limit } = args as { search?: string; limit?: number };
+        
+        const projects = search 
+          ? db.searchProjects(search)
+          : db.getAllProjects(limit || 50);
+        
+        const projectList = projects.map(p => {
+          const stats = db.getProjectStats(p.id);
+          return `## ${p.name}\n` +
+            `- **Path:** ${p.path}\n` +
+            `- **Stack:** ${p.stack || 'unknown'}\n` +
+            `- **Branch:** ${p.branch || 'N/A'}\n` +
+            `- **Last Commit:** ${p.last_commit || 'N/A'}\n` +
+            `- **Sessions:** ${stats.sessions}\n` +
+            `- **Quests:** ${stats.quests.pending} pending, ${stats.quests.completed} completed\n` +
+            `- **Data Points:** ${stats.dataPoints}`;
+        }).join('\n\n');
+        
+        return {
+          content: [{
+            type: "text",
+            text: `🐉 **${projects.length} Projects**\n\n${projectList}`
+          }]
+        };
+      }
+
+      case "wyrm_project_context": {
+        const { projectPath, projectName } = args as { projectPath?: string; projectName?: string };
+        
+        let project = projectPath ? db.getProject(projectPath) : undefined;
+        if (!project && projectName) {
+          project = db.getProjectByName(projectName);
+        }
+        
+        if (!project) {
+          return { content: [{ type: "text", text: "Project not found. Run wyrm_scan_projects first." }] };
+        }
+        
+        // Gather data for context bundle
+        const recentSessions = db.getRecentSessions(project.id, 10);
+        const quests = db.getPendingQuests(project.id).map(q => ({ title: q.title, priority: q.priority }));
+        const currentContext = db.getAllContext(project.id);
+        
+        const context = createContextBundle(
+          { name: project.name, stack: project.stack },
+          currentContext,
+          recentSessions,
+          quests
+        );
+        
+        return {
+          content: [{
+            type: "text",
+            text: `🐉 **Context for ${project.name}**\n\n${context}`
+          }]
+        };
+      }
+
+      // ==================== GLOBAL CONTEXT ====================
+      case "wyrm_global_context": {
+        const { includeQuests, maxProjects } = args as { includeQuests?: boolean; maxProjects?: number };
+        
+        const projects = db.getAllProjects(maxProjects || 20);
+        const globalContext = db.getAllGlobalContext();
+        
+        let text = `🐉 **Wyrm Global Overview**\n\n`;
+        
+        // Global context
+        if (Object.keys(globalContext).length > 0) {
+          text += `## Global Context\n`;
+          for (const [key, value] of Object.entries(globalContext)) {
+            text += `- **${key}:** ${value.slice(0, 200)}${value.length > 200 ? '...' : ''}\n`;
+          }
+          text += '\n';
+        }
+        
+        // Projects summary
+        text += `## Projects (${projects.length})\n`;
+        for (const p of projects) {
+          const stats = db.getProjectStats(p.id);
+          text += `- **${p.name}** (${p.stack || '?'}) - ${stats.quests.pending} quests, ${stats.sessions} sessions\n`;
+        }
+        text += '\n';
+        
+        // All pending quests
+        if (includeQuests) {
+          const allQuests = db.getAllPendingQuests();
+          text += `## All Pending Quests (${allQuests.length})\n`;
+          for (const q of allQuests.slice(0, 20)) {
+            const emoji = { critical: '🔴', high: '🟠', medium: '🟡', low: '🟢' }[q.priority];
+            text += `- ${emoji} [${(q as any).project_name}] ${q.title}\n`;
+          }
+        }
+        
+        return { content: [{ type: "text", text }] };
+      }
+
+      // ==================== SESSIONS ====================
+      case "wyrm_session_start": {
+        const { projectPath, objectives } = args as { projectPath: string; objectives?: string };
+        
+        let project = db.getProject(projectPath);
+        if (!project) {
+          // Auto-register project
+          const { basename } = await import('path');
+          project = db.registerProject(basename(projectPath), projectPath);
+        }
+        
+        let session = db.getTodaySession(project.id);
+        if (!session) {
+          session = db.createSession(project.id, { objectives: objectives || '' });
+        } else if (objectives) {
+          session = db.updateSession(session.id, { 
+            objectives: session.objectives ? `${session.objectives}\n${objectives}` : objectives 
+          });
+        }
+        
+        // Archive old sessions
+        db.archiveOldSessions(project.id, 10);
+        
+        return {
+          content: [{
+            type: "text",
+            text: `🐉 Session ${session.id} for ${project.name}\n` +
+              `**Date:** ${session.date}\n` +
+              `**Objectives:** ${session.objectives || 'None set'}`
+          }]
+        };
+      }
+
+      case "wyrm_session_update": {
+        const { projectPath, completed, issues, commits, notes } = args as {
           projectPath: string;
           completed?: string;
           issues?: string;
           commits?: string;
-          filesChanged?: string;
           notes?: string;
         };
         
         const project = db.getProject(projectPath);
         if (!project) {
-          return { content: [{ type: 'text', text: 'Project not found. Run wyrm_session_start first.' }] };
+          return { content: [{ type: "text", text: "Project not found" }] };
         }
         
         let session = db.getTodaySession(project.id);
@@ -295,178 +453,342 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           session = db.createSession(project.id, {});
         }
         
-        // Append to existing values
-        const updates: Record<string, string> = {};
+        const updates: any = {};
         if (completed) updates.completed = session.completed ? `${session.completed}\n${completed}` : completed;
         if (issues) updates.issues = session.issues ? `${session.issues}\n${issues}` : issues;
         if (commits) updates.commits = session.commits ? `${session.commits}\n${commits}` : commits;
-        if (filesChanged) updates.files_changed = session.files_changed ? `${session.files_changed}\n${filesChanged}` : filesChanged;
         if (notes) updates.notes = session.notes ? `${session.notes}\n${notes}` : notes;
         
         session = db.updateSession(session.id, updates);
         
-        // Generate summary
-        const summary = summarizeSession(session);
-        db.updateSession(session.id, { summary: summary.summary });
-        
-        // Sync to .wyrm folder
-        try {
-          sync.exportToFolder(projectPath);
-        } catch {
-          // No .wyrm folder, skip
-        }
-        
         return {
-          content: [{ type: 'text', text: `Session updated. Summary: ${summary.summary}` }],
+          content: [{
+            type: "text",
+            text: `🐉 Session updated for ${project.name}`
+          }]
         };
       }
-      
-      case 'wyrm_quest_add': {
-        const { projectPath, title, description, priority = 'medium' } = args as {
+
+      // ==================== QUESTS ====================
+      case "wyrm_quest_add": {
+        const { projectPath, title, description, priority, tags } = args as {
           projectPath: string;
           title: string;
           description?: string;
           priority?: 'critical' | 'high' | 'medium' | 'low';
+          tags?: string;
         };
         
         const project = db.getProject(projectPath);
         if (!project) {
-          return { content: [{ type: 'text', text: 'Project not found.' }] };
+          return { content: [{ type: "text", text: "Project not found" }] };
         }
         
-        const quest = db.addQuest(project.id, title, description, priority);
+        const quest = db.addQuest(project.id, title, description, priority || 'medium', tags);
         
-        // Sync to .wyrm folder
-        try {
-          sync.exportToFolder(projectPath);
-        } catch {
-          // Skip if no .wyrm folder
-        }
-        
-        return {
-          content: [{ type: 'text', text: `Quest added: [${quest.priority}] ${quest.title} (ID: ${quest.id})` }],
-        };
-      }
-      
-      case 'wyrm_quest_complete': {
-        const { projectPath, questId, title } = args as { projectPath: string; questId?: number; title?: string };
-        
-        const project = db.getProject(projectPath);
-        if (!project) {
-          return { content: [{ type: 'text', text: 'Project not found.' }] };
-        }
-        
-        let id = questId;
-        if (!id && title) {
-          const quests = db.getPendingQuests(project.id);
-          const found = quests.find(q => q.title.toLowerCase().includes(title.toLowerCase()));
-          if (found) id = found.id;
-        }
-        
-        if (!id) {
-          return { content: [{ type: 'text', text: 'Quest not found.' }] };
-        }
-        
-        const quest = db.updateQuest(id, 'completed');
-        
-        // Sync to .wyrm folder
-        try {
-          sync.exportToFolder(projectPath);
-        } catch {
-          // Skip if no .wyrm folder
-        }
-        
-        return {
-          content: [{ type: 'text', text: `Quest completed: ${quest.title}` }],
-        };
-      }
-      
-      case 'wyrm_sync': {
-        const { projectPath, direction = 'both' } = args as { projectPath: string; direction?: string };
-        
-        let result = '';
-        
-        if (direction === 'import' || direction === 'both') {
-          try {
-            const project = sync.importFromFolder(projectPath);
-            result += `Imported from .wyrm folder for ${project.name}. `;
-          } catch (e) {
-            result += `Import failed: ${e}. `;
-          }
-        }
-        
-        if (direction === 'export' || direction === 'both') {
-          try {
-            sync.exportToFolder(projectPath);
-            result += `Exported to .wyrm folder. `;
-          } catch (e) {
-            result += `Export failed: ${e}. `;
-          }
-        }
-        
-        return { content: [{ type: 'text', text: result }] };
-      }
-      
-      case 'wyrm_stats': {
-        const stats = db.getStats();
         return {
           content: [{
-            type: 'text',
-            text: `Wyrm Stats:\n- Projects: ${stats.projects}\n- Sessions: ${stats.sessions}\n- Quests: ${stats.quests}`,
-          }],
+            type: "text",
+            text: `🐉 Quest #${quest.id} added: ${title}`
+          }]
         };
       }
-      
+
+      case "wyrm_quest_complete": {
+        const { questId } = args as { questId: number };
+        const quest = db.updateQuest(questId, 'completed');
+        
+        return {
+          content: [{
+            type: "text",
+            text: `🐉 Quest #${questId} completed: ${quest.title}`
+          }]
+        };
+      }
+
+      case "wyrm_all_quests": {
+        const { priority } = args as { priority?: string };
+        let quests = db.getAllPendingQuests();
+        
+        if (priority) {
+          quests = quests.filter(q => q.priority === priority);
+        }
+        
+        const text = quests.map(q => {
+          const emoji = { critical: '🔴', high: '🟠', medium: '🟡', low: '🟢' }[q.priority];
+          return `${emoji} [${(q as any).project_name}] #${q.id}: ${q.title}`;
+        }).join('\n');
+        
+        return {
+          content: [{
+            type: "text",
+            text: `🐉 **${quests.length} Pending Quests**\n\n${text}`
+          }]
+        };
+      }
+
+      // ==================== DATA LAKE ====================
+      case "wyrm_data_insert": {
+        const { projectPath, category, key, value, metadata } = args as {
+          projectPath: string;
+          category: string;
+          key: string;
+          value: string;
+          metadata?: Record<string, unknown>;
+        };
+        
+        const project = db.getProject(projectPath);
+        if (!project) {
+          return { content: [{ type: "text", text: "Project not found" }] };
+        }
+        
+        const dataPoint = db.insertData(project.id, category, key, value, metadata);
+        
+        return {
+          content: [{
+            type: "text",
+            text: `🐉 Data inserted: ${category}/${key} (ID: ${dataPoint.id})`
+          }]
+        };
+      }
+
+      case "wyrm_data_batch_insert": {
+        const { projectPath, data } = args as {
+          projectPath: string;
+          data: Array<{ category: string; key: string; value: string; metadata?: Record<string, unknown> }>;
+        };
+        
+        const project = db.getProject(projectPath);
+        if (!project) {
+          return { content: [{ type: "text", text: "Project not found" }] };
+        }
+        
+        const items = data.map(d => ({ ...d, projectId: project.id }));
+        const count = db.insertDataBatch(items);
+        
+        return {
+          content: [{
+            type: "text",
+            text: `🐉 Batch inserted ${count} data points`
+          }]
+        };
+      }
+
+      case "wyrm_data_query": {
+        const { projectPath, category, search, limit, offset } = args as {
+          projectPath: string;
+          category?: string;
+          search?: string;
+          limit?: number;
+          offset?: number;
+        };
+        
+        const project = db.getProject(projectPath);
+        if (!project) {
+          return { content: [{ type: "text", text: "Project not found" }] };
+        }
+        
+        let results;
+        if (search) {
+          results = db.searchData(search, project.id);
+        } else {
+          results = db.queryData(project.id, category, limit || 100, offset || 0);
+        }
+        
+        const text = results.slice(0, 50).map(d => 
+          `- **${d.category}/${d.key}:** ${d.value.slice(0, 100)}${d.value.length > 100 ? '...' : ''}`
+        ).join('\n');
+        
+        return {
+          content: [{
+            type: "text",
+            text: `🐉 **${results.length} Results**\n\n${text}`
+          }]
+        };
+      }
+
+      case "wyrm_data_categories": {
+        const { projectPath } = args as { projectPath: string };
+        
+        const project = db.getProject(projectPath);
+        if (!project) {
+          return { content: [{ type: "text", text: "Project not found" }] };
+        }
+        
+        const categories = db.getDataCategories(project.id);
+        const text = categories.map(c => `- ${c.category}: ${c.count} items`).join('\n');
+        
+        return {
+          content: [{
+            type: "text",
+            text: `🐉 **Data Categories for ${project.name}**\n\n${text}`
+          }]
+        };
+      }
+
+      // ==================== GLOBAL CONTEXT ====================
+      case "wyrm_set_global": {
+        const { key, value } = args as { key: string; value: string };
+        db.setGlobalContext(key, value);
+        
+        return {
+          content: [{
+            type: "text",
+            text: `🐉 Global context set: ${key}`
+          }]
+        };
+      }
+
+      // ==================== SEARCH ====================
+      case "wyrm_search": {
+        const { query, type, projectPath } = args as {
+          query: string;
+          type?: 'all' | 'sessions' | 'quests' | 'data';
+          projectPath?: string;
+        };
+        
+        const project = projectPath ? db.getProject(projectPath) : undefined;
+        const projectId = project?.id;
+        const searchType = type || 'all';
+        
+        let text = `🐉 **Search Results for "${query}"**\n\n`;
+        
+        if (searchType === 'all' || searchType === 'sessions') {
+          const sessions = db.searchSessions(query, projectId);
+          if (sessions.length > 0) {
+            text += `## Sessions (${sessions.length})\n`;
+            for (const s of sessions.slice(0, 10)) {
+              text += `- ${s.date}: ${s.objectives?.slice(0, 80) || s.completed?.slice(0, 80) || 'No info'}...\n`;
+            }
+            text += '\n';
+          }
+        }
+        
+        if (searchType === 'all' || searchType === 'quests') {
+          const quests = db.searchQuests(query);
+          if (quests.length > 0) {
+            text += `## Quests (${quests.length})\n`;
+            for (const q of quests.slice(0, 10)) {
+              text += `- #${q.id}: ${q.title}\n`;
+            }
+            text += '\n';
+          }
+        }
+        
+        if (searchType === 'all' || searchType === 'data') {
+          const data = db.searchData(query, projectId);
+          if (data.length > 0) {
+            text += `## Data (${data.length})\n`;
+            for (const d of data.slice(0, 10)) {
+              text += `- ${d.category}/${d.key}\n`;
+            }
+          }
+        }
+        
+        return { content: [{ type: "text", text }] };
+      }
+
+      // ==================== SYNC & MAINTENANCE ====================
+      case "wyrm_sync": {
+        const { projectPath, direction } = args as {
+          projectPath?: string;
+          direction?: 'import' | 'export' | 'both';
+        };
+        
+        const dir = direction || 'both';
+        let count = 0;
+        
+        if (projectPath) {
+          const project = db.getProject(projectPath);
+          if (project) {
+            if (dir === 'import' || dir === 'both') sync.importFromFolder(projectPath);
+            if (dir === 'export' || dir === 'both') sync.exportToFolder(projectPath);
+            count = 1;
+          }
+        } else {
+          const projects = db.getAllProjects(1000);
+          for (const p of projects) {
+            try {
+              if (dir === 'import' || dir === 'both') sync.importFromFolder(p.path);
+              if (dir === 'export' || dir === 'both') sync.exportToFolder(p.path);
+              count++;
+            } catch {
+              // Skip failed syncs
+            }
+          }
+        }
+        
+        return {
+          content: [{
+            type: "text",
+            text: `🐉 Synced ${count} project(s)`
+          }]
+        };
+      }
+
+      case "wyrm_stats": {
+        const stats = db.getStats();
+        
+        return {
+          content: [{
+            type: "text",
+            text: `🐉 **Wyrm Statistics**\n\n` +
+              `- **Projects:** ${stats.projects}\n` +
+              `- **Sessions:** ${stats.sessions}\n` +
+              `- **Quests:** ${stats.quests}\n` +
+              `- **Data Points:** ${stats.dataPoints}\n` +
+              `- **Active Tokens:** ~${stats.totalTokens.toLocaleString()}\n` +
+              `- **Database Size:** ${stats.dbSize}`
+          }]
+        };
+      }
+
+      case "wyrm_maintenance": {
+        const { vacuum, archiveDays } = args as { vacuum?: boolean; archiveDays?: number };
+        
+        let text = '🐉 **Maintenance Complete**\n\n';
+        
+        if (archiveDays) {
+          const projects = db.getAllProjects(1000);
+          let archived = 0;
+          for (const p of projects) {
+            archived += db.archiveOldSessions(p.id, archiveDays);
+          }
+          text += `- Archived ${archived} old sessions\n`;
+        }
+        
+        if (vacuum) {
+          db.vacuum();
+          text += `- Vacuumed database\n`;
+        }
+        
+        db.checkpoint();
+        text += `- Checkpointed WAL\n`;
+        
+        const stats = db.getStats();
+        text += `\n**New Database Size:** ${stats.dbSize}`;
+        
+        return { content: [{ type: "text", text }] };
+      }
+
       default:
-        return { content: [{ type: 'text', text: `Unknown tool: ${name}` }] };
+        return {
+          content: [{ type: "text", text: `Unknown tool: ${name}` }],
+          isError: true,
+        };
     }
   } catch (error) {
     return {
-      content: [{ type: 'text', text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
+      content: [{ type: "text", text: `Error: ${error}` }],
       isError: true,
     };
   }
-});
-
-// List resources
-server.setRequestHandler(ListResourcesRequestSchema, async () => {
-  const stats = db.getStats();
-  
-  return {
-    resources: [
-      {
-        uri: 'wyrm://stats',
-        name: 'Wyrm Statistics',
-        description: `${stats.projects} projects, ${stats.sessions} sessions, ${stats.quests} quests`,
-        mimeType: 'text/plain',
-      },
-    ],
-  };
-});
-
-// Read resources
-server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
-  const { uri } = request.params;
-  
-  if (uri === 'wyrm://stats') {
-    const stats = db.getStats();
-    return {
-      contents: [{
-        uri,
-        mimeType: 'text/plain',
-        text: JSON.stringify(stats, null, 2),
-      }],
-    };
-  }
-  
-  return { contents: [] };
 });
 
 // Start server
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error('Wyrm MCP Server started');
 }
 
 main().catch(console.error);
