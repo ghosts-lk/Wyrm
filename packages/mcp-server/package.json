@@ -1,19 +1,20 @@
 {
   "name": "@wyrm/mcp-server",
-  "version": "2.0.0",
-  "description": "🐉 Wyrm MCP Server - AI Memory with Multi-Project Tracking",
+  "version": "2.2.0",
+  "description": "🐉 Wyrm - Fast AI Memory System",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
     "wyrm-mcp": "dist/index.js",
-    "wyrm-http": "dist/http-server.js"
+    "wyrm-http": "dist/http-server.js",
+    "wyrm": "dist/http-fast.js"
   },
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
     "http": "node dist/http-server.js",
-    "dev": "tsc --watch",
-    "clean": "rm -rf dist"
+    "fast": "node dist/http-fast.js",
+    "dev": "tsc --watch"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
@@ -26,13 +27,5 @@
   },
   "engines": {
     "node": ">=18"
-  },
-  "keywords": [
-    "mcp",
-    "ai-memory",
-    "llm",
-    "copilot",
-    "ollama",
-    "wyrm"
-  ]
+  }
 }
