@@ -1,14 +1,57 @@
 /**
  * Wyrm File Sync - Watches and syncs .wyrm folder with database
  * 
+ * @copyright 2026 Ghost Protocol (Pvt) Ltd. All Rights Reserved.
+ * @license Proprietary - See LICENSE file for details.
+ * 
  * - Watches for changes to markdown files
  * - Syncs changes to SQLite database
  * - Exports database state back to markdown
  */
 
-import { watch, existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { join, basename } from 'path';
+import { watch, existsSync, readFileSync, writeFileSync, mkdirSync, statSync } from 'fs';
+import { join, basename, resolve, normalize, relative, sep } from 'path';
 import { WyrmDB, Project, Session, Quest } from './database.js';
+
+// ==================== PATH SECURITY ====================
+
+/**
+ * SECURITY: Validate path is within the base directory
+ */
+function validatePath(basePath: string, targetPath: string): string {
+  const normalizedBase = normalize(resolve(basePath));
+  const normalizedTarget = normalize(resolve(basePath, targetPath));
+  
+  // Check if target is within base
+  const rel = relative(normalizedBase, normalizedTarget);
+  
+  if (rel.startsWith('..') || rel.startsWith(sep)) {
+    throw new Error('SECURITY: Path traversal detected');
+  }
+  
+  if (!normalizedTarget.startsWith(normalizedBase)) {
+    throw new Error('SECURITY: Path traversal detected');
+  }
+  
+  return normalizedTarget;
+}
+
+/**
+ * SECURITY: Validate project path is a real directory
+ */
+function validateProjectPath(projectPath: string): string {
+  const normalizedPath = normalize(resolve(projectPath));
+  
+  if (!existsSync(normalizedPath)) {
+    throw new Error(`Project path does not exist: ${projectPath}`);
+  }
+  
+  if (!statSync(normalizedPath).isDirectory()) {
+    throw new Error(`Project path is not a directory: ${projectPath}`);
+  }
+  
+  return normalizedPath;
+}
 
 export class WyrmSync {
   private db: WyrmDB;
@@ -22,36 +65,38 @@ export class WyrmSync {
    * Import markdown files from .wyrm folder into database
    */
   importFromFolder(projectPath: string): Project {
-    const wyrmPath = join(projectPath, '.wyrm');
+    // SECURITY: Validate project path
+    const validatedPath = validateProjectPath(projectPath);
+    const wyrmPath = validatePath(validatedPath, '.wyrm');
     
     if (!existsSync(wyrmPath)) {
-      throw new Error(`No .wyrm folder found at ${projectPath}`);
+      throw new Error(`No .wyrm folder found at ${validatedPath}`);
     }
     
     // Get or create project
-    const projectName = basename(projectPath);
-    let project = this.db.getProject(projectPath);
+    const projectName = basename(validatedPath);
+    let project = this.db.getProject(validatedPath);
     
     if (!project) {
-      project = this.db.registerProject(projectName, projectPath);
+      project = this.db.registerProject(projectName, validatedPath);
     }
     
-    // Import hoard.md
-    const hoardPath = join(wyrmPath, 'hoard.md');
+    // Import hoard.md - SECURITY: validatePath ensures no traversal
+    const hoardPath = validatePath(wyrmPath, 'hoard.md');
     if (existsSync(hoardPath)) {
       const content = readFileSync(hoardPath, 'utf-8');
       this.parseHoard(project.id, content);
     }
     
     // Import chronicles.md
-    const chroniclesPath = join(wyrmPath, 'chronicles.md');
+    const chroniclesPath = validatePath(wyrmPath, 'chronicles.md');
     if (existsSync(chroniclesPath)) {
       const content = readFileSync(chroniclesPath, 'utf-8');
       this.parseChronicles(project.id, content);
     }
     
     // Import quests.md
-    const questsPath = join(wyrmPath, 'quests.md');
+    const questsPath = validatePath(wyrmPath, 'quests.md');
     if (existsSync(questsPath)) {
       const content = readFileSync(questsPath, 'utf-8');
       this.parseQuests(project.id, content);
@@ -64,27 +109,30 @@ export class WyrmSync {
    * Export database state to .wyrm folder
    */
   exportToFolder(projectPath: string): void {
-    const project = this.db.getProject(projectPath);
+    // SECURITY: Validate project path
+    const validatedPath = validateProjectPath(projectPath);
+    
+    const project = this.db.getProject(validatedPath);
     if (!project) {
-      throw new Error(`Project not found: ${projectPath}`);
+      throw new Error(`Project not found: ${validatedPath}`);
     }
     
-    const wyrmPath = join(projectPath, '.wyrm');
+    const wyrmPath = validatePath(validatedPath, '.wyrm');
     if (!existsSync(wyrmPath)) {
       mkdirSync(wyrmPath, { recursive: true });
     }
     
-    // Export hoard.md
+    // Export hoard.md - SECURITY: validatePath ensures no traversal
     const hoardContent = this.generateHoard(project);
-    writeFileSync(join(wyrmPath, 'hoard.md'), hoardContent);
+    writeFileSync(validatePath(wyrmPath, 'hoard.md'), hoardContent);
     
     // Export chronicles.md
     const chroniclesContent = this.generateChronicles(project.id);
-    writeFileSync(join(wyrmPath, 'chronicles.md'), chroniclesContent);
+    writeFileSync(validatePath(wyrmPath, 'chronicles.md'), chroniclesContent);
     
     // Export quests.md
     const questsContent = this.generateQuests(project.id);
-    writeFileSync(join(wyrmPath, 'quests.md'), questsContent);
+    writeFileSync(validatePath(wyrmPath, 'quests.md'), questsContent);
   }
   
   /**

@@ -12,8 +12,8 @@
 import Database from 'better-sqlite3';
 import { existsSync, mkdirSync, readdirSync, statSync } from 'fs';
 import { homedir } from 'os';
-import { join, basename } from 'path';
-import { execSync } from 'child_process';
+import { join, basename, resolve, normalize, sep } from 'path';
+import { spawnSync } from 'child_process';
 
 export interface Project {
   id: number;
@@ -308,55 +308,75 @@ export class WyrmDB {
   
   private registerProjectFromPath(projectPath: string): Project | null {
     try {
-      const name = basename(projectPath);
+      // SECURITY: Validate path is a real directory before any operations
+      const normalizedPath = normalize(resolve(projectPath));
+      if (!existsSync(normalizedPath) || !statSync(normalizedPath).isDirectory()) {
+        return null;
+      }
+      
+      const name = basename(normalizedPath);
       let repo: string | undefined;
       let branch: string | undefined;
       let lastCommit: string | undefined;
       let stack: string | undefined;
       
       try {
-        repo = execSync('git config --get remote.origin.url', { 
-          cwd: projectPath, 
+        // SECURITY: Use spawnSync with shell: false to prevent command injection
+        const repoResult = spawnSync('git', ['config', '--get', 'remote.origin.url'], { 
+          cwd: normalizedPath, 
           encoding: 'utf-8',
-          timeout: 5000 
-        }).trim();
+          timeout: 5000,
+          shell: false  // CRITICAL: No shell interpretation
+        });
+        if (repoResult.status === 0) {
+          repo = repoResult.stdout.trim();
+        }
         
-        branch = execSync('git rev-parse --abbrev-ref HEAD', {
-          cwd: projectPath,
+        const branchResult = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+          cwd: normalizedPath,
           encoding: 'utf-8',
-          timeout: 5000
-        }).trim();
+          timeout: 5000,
+          shell: false
+        });
+        if (branchResult.status === 0) {
+          branch = branchResult.stdout.trim();
+        }
         
-        lastCommit = execSync('git log -1 --format="%h %s"', {
-          cwd: projectPath,
+        const commitResult = spawnSync('git', ['log', '-1', '--format=%h %s'], {
+          cwd: normalizedPath,
           encoding: 'utf-8',
-          timeout: 5000
-        }).trim();
+          timeout: 5000,
+          shell: false
+        });
+        if (commitResult.status === 0) {
+          lastCommit = commitResult.stdout.trim();
+        }
       } catch {
         // Not a git repo or git not available
       }
       
       // Detect stack
-      if (existsSync(join(projectPath, 'package.json'))) {
+      if (existsSync(join(normalizedPath, 'package.json'))) {
         stack = 'Node.js';
-        if (existsSync(join(projectPath, 'next.config.js')) || 
-            existsSync(join(projectPath, 'next.config.ts'))) {
+        if (existsSync(join(normalizedPath, 'next.config.js')) || 
+            existsSync(join(normalizedPath, 'next.config.ts')) ||
+            existsSync(join(normalizedPath, 'next.config.mjs'))) {
           stack = 'Next.js';
-        } else if (existsSync(join(projectPath, 'vite.config.ts'))) {
+        } else if (existsSync(join(normalizedPath, 'vite.config.ts'))) {
           stack = 'Vite';
         }
-      } else if (existsSync(join(projectPath, 'requirements.txt')) || 
-                 existsSync(join(projectPath, 'pyproject.toml'))) {
+      } else if (existsSync(join(normalizedPath, 'requirements.txt')) || 
+                 existsSync(join(normalizedPath, 'pyproject.toml'))) {
         stack = 'Python';
-      } else if (existsSync(join(projectPath, 'composer.json'))) {
+      } else if (existsSync(join(normalizedPath, 'composer.json'))) {
         stack = 'PHP';
-      } else if (existsSync(join(projectPath, 'Cargo.toml'))) {
+      } else if (existsSync(join(normalizedPath, 'Cargo.toml'))) {
         stack = 'Rust';
-      } else if (existsSync(join(projectPath, 'go.mod'))) {
+      } else if (existsSync(join(normalizedPath, 'go.mod'))) {
         stack = 'Go';
       }
       
-      return this.registerProject(name, projectPath, repo, stack, lastCommit, branch);
+      return this.registerProject(name, normalizedPath, repo, stack, lastCommit, branch);
     } catch {
       return null;
     }
