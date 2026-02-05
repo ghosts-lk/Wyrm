@@ -209,6 +209,32 @@ docker run -p 3333:3333 -v wyrm-data:/data ghcr.io/ghosts-protocol-pvt-ltd/wyrm:
 curl http://localhost:3333/health
 ```
 
+## Ghost Protocol Ecosystem
+
+Wyrm is part of the Ghost Protocol product suite:
+
+| Product | Description |
+|---------|-------------|
+| **[Wyrm](https://github.com/ghosts-lk/Wyrm)** | Persistent AI memory system for development |
+| **[Foundry](https://github.com/ghosts-lk/Foundry)** | Enterprise website development framework |
+| **[PhantomDragon](https://github.com/ghosts-lk/PhantomDragon)** | Web application penetration testing framework |
+| **[DragonScale](https://ghosts.lk/dragonscale)** | Security audit & compliance platform |
+| **[DragonKeep](https://ghosts.lk/dragonkeep)** | Secure infrastructure management |
+
+### Foundry Integration
+
+Wyrm integrates seamlessly with Foundry projects:
+
+```bash
+# In a Foundry project, initialize Wyrm
+foundry wyrm init
+
+# Sync with AI memory
+foundry wyrm sync
+```
+
+This enables AI assistants to maintain project context, track tasks, and coordinate multi-agent workflows.
+
 ## License
 
 **Proprietary** - Copyright (c) 2026 Ghost Protocol (Pvt) Ltd. All Rights Reserved.
