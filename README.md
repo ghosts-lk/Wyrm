@@ -76,6 +76,7 @@ Built as a **Model Context Protocol (MCP)** server in TypeScript, Wyrm integrate
 | **📈 Token Tracking** | Automatic token estimation for context budgeting — never exceed context windows |
 | **🌐 HTTP API** | Full REST API on port 3333 for programmatic access and tooling integration |
 | **🐳 Docker** | Container image available via GitHub Container Registry |
+| **⚡ Auto-Configure** | One command connects Wyrm to any AI client — VS Code, Claude Desktop, Cursor, Windsurf, Zed — switch AIs anytime |
 
 ---
 
@@ -106,7 +107,41 @@ wyrm-deploy /path/to/your/projects
 
 ## Quick Start
 
-### 1. Configure with GitHub Copilot
+### 1. Auto-Configure (Recommended)
+
+```bash
+wyrm-setup
+```
+
+This auto-detects all installed AI clients and configures Wyrm in each one. Supported clients:
+
+| Client | Config Location |
+|--------|----------------|
+| **VS Code (Copilot)** | `~/.config/Code/User/settings.json` |
+| **VS Code Insiders** | `~/.config/Code - Insiders/User/settings.json` |
+| **Claude Desktop** | `~/.config/claude/claude_desktop_config.json` |
+| **Cursor** | `~/.cursor/mcp.json` |
+| **Windsurf** | `~/.codeium/windsurf/mcp_config.json` |
+| **Zed** | `~/.config/zed/settings.json` |
+| **Continue** | `~/.continue/config.json` |
+
+```bash
+# Check what's configured
+wyrm-setup check
+
+# Configure specific clients only
+wyrm-setup only vscode-copilot,cursor
+
+# Remove Wyrm from all clients
+wyrm-setup remove
+
+# Re-configure after switching AIs
+wyrm-setup reconf
+```
+
+**Switching AIs?** Just install the new client and run `wyrm-setup` again. It detects the new client and adds the Wyrm config automatically. Your memory persists across all clients — same SQLite database, same context, no data loss.
+
+### 2. Manual Setup (VS Code Copilot)
 
 Add to your VS Code settings (`.vscode/settings.json`):
 
@@ -120,13 +155,13 @@ Add to your VS Code settings (`.vscode/settings.json`):
 }
 ```
 
-### 2. Start the HTTP Server (Optional)
+### 3. Start the HTTP Server (Optional)
 
 ```bash
 wyrm  # Starts on http://localhost:3333
 ```
 
-### 3. Scan Your Projects
+### 4. Scan Your Projects
 
 In Copilot Chat:
 ```
@@ -137,6 +172,8 @@ In Copilot Chat:
 
 | Command | Description |
 |---------|-------------|
+| `wyrm-setup` | Auto-detect AI clients and configure Wyrm in all of them |
+| `wyrm-setup check` | Show which AI clients are detected and configured |
 | `wyrm-mcp` | Start MCP server (stdio mode for AI tools) |
 | `wyrm` | Start HTTP API server on port 3333 |
 | `wyrm-deploy <path>` | Deploy Wyrm configuration to all projects in a folder |
@@ -185,6 +222,7 @@ In Copilot Chat:
 | `wyrm_sync` | Sync database with `.wyrm/` markdown files |
 | `wyrm_stats` | Database statistics and health |
 | `wyrm_maintenance` | Vacuum, archive old data, optimize indexes |
+| `wyrm_setup` | Auto-configure Wyrm in all detected AI clients (can be triggered by AI) |
 
 ---
 
@@ -229,26 +267,31 @@ Wyrm/
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    AI Assistant                          │
-│              (Copilot, Claude, GPT)                      │
-└─────────────────────┬───────────────────────────────────┘
-                      │ MCP Protocol (stdio)
-                      ▼
+│                    AI Assistants                         │
+│        (Copilot, Claude, Cursor, Windsurf, Zed)          │
+└────────┬──────────────┬──────────────┬──────────────────┘
+         │              │              │
+         │  wyrm-setup auto-configures all clients
+         │              │              │
+         ▼              ▼              ▼
 ┌─────────────────────────────────────────────────────────┐
 │                  Wyrm MCP Server                        │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐     │
 │  │   Logger    │  │   Crypto    │  │    Sync     │     │
 │  │  (Winston)  │  │ (AES-256)  │  │ (Markdown)  │     │
 │  └─────────────┘  └─────────────┘  └─────────────┘     │
-│  ┌─────────────────────────────────────────────────┐   │
-│  │           SQLite Database (WAL mode)             │   │
-│  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌───────┐  │   │
-│  │  │Projects │ │Sessions │ │ Quests  │ │ FTS5  │  │   │
-│  │  └─────────┘ └─────────┘ └─────────┘ └───────┘  │   │
-│  │  ┌─────────┐ ┌─────────┐ ┌─────────┐            │   │
-│  │  │DataLake │ │ Context │ │ Tokens  │            │   │
-│  │  └─────────┘ └─────────┘ └─────────┘            │   │
-│  └─────────────────────────────────────────────────┘   │
+│  ┌─────────────┐  ┌─────────────────────────────────┐   │
+│  │ AutoConfig  │  │   SQLite Database (WAL mode)    │   │
+│  │ (AI Client  │  │  ┌─────────┐ ┌─────────┐       │   │
+│  │  Detection  │  │  │Projects │ │Sessions │       │   │
+│  │  & Setup)   │  │  └─────────┘ └─────────┘       │   │
+│  └─────────────┘  │  ┌─────────┐ ┌─────────┐       │   │
+│                   │  │ Quests  │ │DataLake │       │   │
+│                   │  └─────────┘ └─────────┘       │   │
+│                   │  ┌─────────┐ ┌─────────┐       │   │
+│                   │  │ Context │ │  FTS5   │       │   │
+│                   │  └─────────┘ └─────────┘       │   │
+│                   └─────────────────────────────────┘   │
 │                      │                                  │
 │               HTTP API (:3333)                          │
 └─────────────────────────────────────────────────────────┘

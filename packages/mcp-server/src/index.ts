@@ -21,6 +21,7 @@ import {
 import { WyrmDB } from "./database.js";
 import { WyrmSync } from "./sync.js";
 import { summarizeSession, createContextBundle } from "./summarizer.js";
+import { detectClients, autoConfigureAll, removeFromAll, getStatusSummary, findWyrmServerPath, getDefaultDbPath } from "./autoconfig.js";
 
 const db = new WyrmDB();
 const sync = new WyrmSync(db);
@@ -28,7 +29,7 @@ const sync = new WyrmSync(db);
 const server = new Server(
   {
     name: "wyrm",
-    version: "2.0.0",
+    version: "3.0.0",
   },
   {
     capabilities: {
@@ -274,6 +275,19 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           vacuum: { type: "boolean", description: "Run vacuum to reclaim space" },
           archiveDays: { type: "number", description: "Archive sessions older than N days" },
+        },
+      },
+    },
+    // Auto-Configure
+    {
+      name: "wyrm_setup",
+      description: "Auto-detect installed AI clients (VS Code, Claude Desktop, Cursor, Windsurf, Zed) and configure Wyrm's MCP server in all of them. Run this to connect Wyrm to a new AI or after switching providers.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          action: { type: "string", enum: ["configure", "check", "remove"], description: "Action: configure (default), check status, or remove from all" },
+          serverPath: { type: "string", description: "Override Wyrm server path (auto-detected if empty)" },
+          dbPath: { type: "string", description: "Override database path (default: ~/.wyrm/wyrm.db)" },
         },
       },
     },
@@ -771,6 +785,63 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const stats = db.getStats();
         text += `\n**New Database Size:** ${stats.dbSize}`;
         
+        return { content: [{ type: "text", text }] };
+      }
+
+      case "wyrm_setup": {
+        const { action, serverPath, dbPath } = args as {
+          action?: string;
+          serverPath?: string;
+          dbPath?: string;
+        };
+
+        const setupAction = action || 'configure';
+
+        if (setupAction === 'check') {
+          return {
+            content: [{
+              type: "text",
+              text: getStatusSummary()
+            }]
+          };
+        }
+
+        if (setupAction === 'remove') {
+          const results = removeFromAll();
+          const removed = results.filter(r => r.action === 'configured');
+          const text = `🐉 **Wyrm Removed**\n\n` +
+            `Removed from ${removed.length} AI client(s):\n` +
+            results.map(r => `- ${r.client.icon} ${r.client.name}: ${r.message}`).join('\n') +
+            `\n\nRun wyrm_setup again to reconnect.`;
+          return { content: [{ type: "text", text }] };
+        }
+
+        // Default: configure
+        const results = autoConfigureAll({
+          serverPath: serverPath || undefined,
+          dbPath: dbPath || undefined,
+        });
+
+        const configured = results.filter(r => r.action === 'configured' || r.action === 'updated');
+        const failed = results.filter(r => r.action === 'failed');
+
+        let text = `🐉 **Wyrm Auto-Configure Complete**\n\n`;
+        text += `Connected to ${configured.length} AI client(s):\n`;
+        
+        for (const r of results) {
+          const icon = r.action === 'configured' ? '✅' :
+                       r.action === 'updated' ? '🔄' :
+                       r.action === 'skipped' ? '○' : '❌';
+          text += `- ${icon} ${r.client.icon} ${r.client.name}: ${r.message}\n`;
+        }
+
+        if (failed.length > 0) {
+          text += `\n⚠️ ${failed.length} client(s) failed. Check errors above.`;
+        }
+
+        text += `\n\nServer: ${findWyrmServerPath()}\nDB: ${getDefaultDbPath()}`;
+        text += `\n\n_Switch AIs anytime — run wyrm_setup again to reconnect._`;
+
         return { content: [{ type: "text", text }] };
       }
 

@@ -1,6 +1,7 @@
 {
-  "// INSTRUCTIONS": "Add this to your VS Code User Settings (settings.json) or use workspace settings",
+  "// INSTRUCTIONS": "Run 'wyrm-setup' to auto-configure, or add this manually to your VS Code User Settings",
   "// LOCATION": "~/.config/Code/User/settings.json",
+  "// AUTO-SETUP": "Run: wyrm-setup (auto-detects VS Code, Claude Desktop, Cursor, Windsurf, Zed)",
   
   "mcp": {
     "servers": {
@@ -16,7 +17,7 @@
   
   "github.copilot.chat.codeGeneration.instructions": [
     {
-      "text": "You have access to Wyrm, a persistent memory system. Available tools: wyrm_scan_projects, wyrm_list_projects, wyrm_project_context, wyrm_global_context, wyrm_session_start, wyrm_session_update, wyrm_quest_add, wyrm_quest_complete, wyrm_all_quests, wyrm_data_insert, wyrm_data_query, wyrm_search, wyrm_stats. Use these to remember context across sessions."
+      "text": "You have access to Wyrm, a persistent memory system. Available tools: wyrm_scan_projects, wyrm_list_projects, wyrm_project_context, wyrm_global_context, wyrm_session_start, wyrm_session_update, wyrm_quest_add, wyrm_quest_complete, wyrm_all_quests, wyrm_data_insert, wyrm_data_query, wyrm_search, wyrm_stats, wyrm_setup. Use these to remember context across sessions. Use wyrm_setup to auto-configure Wyrm for any AI client."
     }
   ]
 }
