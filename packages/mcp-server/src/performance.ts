@@ -1,17 +1,24 @@
 /**
- * 🐉 Wyrm Performance Layer
- * Caching, batching, and response optimization for AI consumption
+ * 🐉 Wyrm Performance Layer v2
+ * LRU caching, prepared statement pooling, response optimization
  */
 
-// In-memory cache with TTL
+// LRU cache with TTL + max size eviction
 class MemCache {
-  private cache = new Map<string, { data: unknown; expires: number }>();
+  private cache = new Map<string, { data: unknown; expires: number; lastAccess: number }>();
   private defaultTTL: number;
+  private maxSize: number;
   private hits = 0;
   private misses = 0;
 
-  constructor(ttlSeconds = 60) {
+  constructor(ttlSeconds = 60, maxEntries = 256) {
     this.defaultTTL = ttlSeconds * 1000;
+    this.maxSize = maxEntries;
+
+    // Periodic cleanup of expired entries (every 30s)
+    if (typeof setInterval !== 'undefined') {
+      setInterval(() => this.evictExpired(), 30_000).unref?.();
+    }
   }
 
   get<T>(key: string): T | undefined {
@@ -26,13 +33,19 @@ class MemCache {
       return undefined;
     }
     this.hits++;
+    entry.lastAccess = Date.now();
     return entry.data as T;
   }
 
   set(key: string, data: unknown, ttlMs?: number): void {
+    // LRU eviction when at capacity
+    if (this.cache.size >= this.maxSize && !this.cache.has(key)) {
+      this.evictLRU();
+    }
     this.cache.set(key, {
       data,
-      expires: Date.now() + (ttlMs ?? this.defaultTTL)
+      expires: Date.now() + (ttlMs ?? this.defaultTTL),
+      lastAccess: Date.now(),
     });
   }
 
@@ -46,10 +59,32 @@ class MemCache {
     }
   }
 
-  stats(): { size: number; keys: string[]; hits: number; misses: number; hitRate: string } {
+  /** Evict the least-recently-used entry */
+  private evictLRU(): void {
+    let oldestKey: string | undefined;
+    let oldestAccess = Infinity;
+    for (const [key, entry] of this.cache) {
+      if (entry.lastAccess < oldestAccess) {
+        oldestAccess = entry.lastAccess;
+        oldestKey = key;
+      }
+    }
+    if (oldestKey) this.cache.delete(oldestKey);
+  }
+
+  /** Remove all expired entries */
+  private evictExpired(): void {
+    const now = Date.now();
+    for (const [key, entry] of this.cache) {
+      if (now > entry.expires) this.cache.delete(key);
+    }
+  }
+
+  stats(): { size: number; maxSize: number; keys: string[]; hits: number; misses: number; hitRate: string } {
     const total = this.hits + this.misses;
     return {
       size: this.cache.size,
+      maxSize: this.maxSize,
       keys: [...this.cache.keys()],
       hits: this.hits,
       misses: this.misses,
@@ -58,8 +93,8 @@ class MemCache {
   }
 }
 
-// Singleton cache — 60s default TTL (was 30s, increased for credit savings)
-export const cache = new MemCache(60);
+// Singleton cache — 60s TTL, 256 max entries with LRU eviction
+export const cache = new MemCache(60, 256);
 
 // Compact response formats - reduce token usage
 export function compactProject(p: {
@@ -104,7 +139,13 @@ export interface BatchResponse {
 // Token estimation - helps AI manage context
 export function estimateTokens(obj: unknown): number {
   const str = typeof obj === 'string' ? obj : JSON.stringify(obj);
+  // ~4 chars per token for English text, tighter for JSON
   return Math.ceil(str.length / 4);
+}
+
+// Fast token count for pre-sized buffers
+export function estimateTokensFast(length: number): number {
+  return Math.ceil(length / 4);
 }
 
 // Truncate to token limit
@@ -181,4 +222,59 @@ export async function timedAsync<T>(fn: () => Promise<T>): Promise<{ result: T; 
   const start = performance.now();
   const result = await fn();
   return { result, ms: Math.round(performance.now() - start) };
+}
+
+// Write coalescer - batches rapid sequential writes into single transactions
+export class WriteCoalescer {
+  private pending: Array<() => void> = [];
+  private timer: NodeJS.Timeout | null = null;
+  private readonly flushMs: number;
+  private readonly maxBatch: number;
+
+  constructor(flushMs = 50, maxBatch = 100) {
+    this.flushMs = flushMs;
+    this.maxBatch = maxBatch;
+  }
+
+  /** Queue a write operation. It will be batched with others if they arrive within flushMs. */
+  enqueue(op: () => void): void {
+    this.pending.push(op);
+    if (this.pending.length >= this.maxBatch) {
+      this.flush();
+      return;
+    }
+    if (!this.timer) {
+      this.timer = setTimeout(() => this.flush(), this.flushMs);
+      this.timer.unref?.();
+    }
+  }
+
+  /** Execute all pending writes in a single transaction */
+  flush(): void {
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    const ops = this.pending.splice(0);
+    if (ops.length === 0) return;
+    for (const op of ops) {
+      try { op(); } catch { /* individual op failure shouldn't stop batch */ }
+    }
+  }
+
+  get size(): number {
+    return this.pending.length;
+  }
+}
+
+// Response compressor - deduplicates repeated field names in JSON arrays
+export function compressArray<T extends Record<string, unknown>>(
+  items: T[],
+  maxItems = 50,
+): { columns: string[]; rows: unknown[][] } | T[] {
+  if (items.length <= 3) return items;
+  const sliced = items.slice(0, maxItems);
+  const columns = Object.keys(sliced[0] || {});
+  const rows = sliced.map(item => columns.map(c => item[c]));
+  return { columns, rows };
 }

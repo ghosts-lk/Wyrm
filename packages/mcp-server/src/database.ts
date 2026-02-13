@@ -111,6 +111,8 @@ export class WyrmDB {
     this.db.pragma('cache_size = -64000'); // 64MB cache
     this.db.pragma('temp_store = MEMORY');
     this.db.pragma('busy_timeout = 5000'); // Wait 5s for locks
+    this.db.pragma('mmap_size = 268435456'); // 256MB memory-mapped I/O
+    this.db.pragma('page_size = 4096'); // Optimal page size
     
     this.init();
     
