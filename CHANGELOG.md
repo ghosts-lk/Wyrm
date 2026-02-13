@@ -5,6 +5,37 @@ All notable changes to Wyrm will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] - 2025-07-13
+
+### Added
+
+- **Prompt Caching & Credit Savings**
+  - MCP `cache_control` hints on all read-only tool responses (Claude, etc. can cache these blocks)
+  - In-memory response cache with per-tool TTL (15-60s) — repeated reads served from memory
+  - Automatic cache invalidation on write operations (session updates, quest changes, etc.)
+  - Response fingerprinting for delta detection
+
+- **Usage Tracking** (`wyrm_usage` tool)
+  - Track token consumption per tool call (input + output estimates)
+  - Cache hit rate monitoring
+  - Cost estimation at Claude Opus pricing ($15/M in, $75/M out)
+  - Top tools by token usage breakdown
+  - Reset counters with `reset: true`
+
+- **Performance Improvements**
+  - `MemCache` now wired into tool handler (was defined but unused)
+  - Cache stats include hit/miss counters and hit rate percentage
+  - Default cache TTL increased from 30s to 60s for better credit savings
+  - Compact project list responses (less verbose, fewer tokens)
+  - `guardSize()` and `estimateTokens()` imported for response optimization
+
+### Changed
+
+- Server version bumped to 3.1.0
+- `wyrm_stats` now includes cache and usage statistics
+- Read-only tools (`list_projects`, `project_context`, `global_context`, `all_quests`, `data_query`, `data_categories`, `search`, `stats`) automatically cached
+- Write tools (`session_start/update`, `quest_add/complete`, `data_insert`, `set_global`, etc.) automatically invalidate relevant caches
+
 ## [3.0.0] - 2026-02-04
 
 ### Added

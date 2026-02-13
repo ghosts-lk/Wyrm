@@ -10,6 +10,10 @@
  * - Multi-project tracking with unified context
  * - Data lake for large dataset storage
  * - Full-text search across all data
+ * - Prompt caching with cache_control hints (saves credits on Claude, etc.)
+ * - In-memory response cache for read-only tools
+ * - Usage tracking for token/cost monitoring
+ * - Compact responses to minimize token burn
  */
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -22,14 +26,135 @@ import { WyrmDB } from "./database.js";
 import { WyrmSync } from "./sync.js";
 import { summarizeSession, createContextBundle } from "./summarizer.js";
 import { detectClients, autoConfigureAll, removeFromAll, getStatusSummary, findWyrmServerPath, getDefaultDbPath } from "./autoconfig.js";
+import { cache, compactProject, compactQuest, compactSession, estimateTokens, guardSize } from "./performance.js";
+import { createHash } from "crypto";
 
 const db = new WyrmDB();
 const sync = new WyrmSync(db);
 
+// ==================== USAGE TRACKING ====================
+interface UsageEntry {
+  tool: string;
+  tokens_in: number;
+  tokens_out: number;
+  cached: boolean;
+  ms: number;
+  timestamp: string;
+}
+
+const usageLog: UsageEntry[] = [];
+const USAGE_MAX_ENTRIES = 500;
+
+function trackUsage(entry: UsageEntry): void {
+  usageLog.push(entry);
+  if (usageLog.length > USAGE_MAX_ENTRIES) {
+    usageLog.splice(0, usageLog.length - USAGE_MAX_ENTRIES);
+  }
+}
+
+function getUsageStats(last?: number): {
+  totalCalls: number;
+  cachedCalls: number;
+  cacheHitRate: string;
+  totalTokensIn: number;
+  totalTokensOut: number;
+  tokensSaved: number;
+  avgResponseMs: number;
+  topTools: { tool: string; calls: number; tokens: number }[];
+} {
+  const entries = last ? usageLog.slice(-last) : usageLog;
+  const cachedEntries = entries.filter(e => e.cached);
+  const toolMap = new Map<string, { calls: number; tokens: number }>();
+  
+  let totalTokensIn = 0, totalTokensOut = 0, tokensSaved = 0, totalMs = 0;
+  
+  for (const e of entries) {
+    totalTokensIn += e.tokens_in;
+    totalTokensOut += e.tokens_out;
+    totalMs += e.ms;
+    if (e.cached) tokensSaved += e.tokens_out;
+    
+    const existing = toolMap.get(e.tool) || { calls: 0, tokens: 0 };
+    existing.calls++;
+    existing.tokens += e.tokens_out;
+    toolMap.set(e.tool, existing);
+  }
+  
+  const topTools = [...toolMap.entries()]
+    .map(([tool, data]) => ({ tool, ...data }))
+    .sort((a, b) => b.tokens - a.tokens)
+    .slice(0, 10);
+  
+  return {
+    totalCalls: entries.length,
+    cachedCalls: cachedEntries.length,
+    cacheHitRate: entries.length > 0 
+      ? `${((cachedEntries.length / entries.length) * 100).toFixed(1)}%` 
+      : '0%',
+    totalTokensIn,
+    totalTokensOut,
+    tokensSaved,
+    avgResponseMs: entries.length > 0 ? Math.round(totalMs / entries.length) : 0,
+    topTools,
+  };
+}
+
+// ==================== RESPONSE HELPERS ====================
+
+// Response fingerprints for delta detection
+const responseFingerprints = new Map<string, string>();
+
+function fingerprint(data: string): string {
+  return createHash('md5').update(data).digest('hex').slice(0, 12);
+}
+
+/** Wrap response with cache_control hint for Anthropic prompt caching */
+function cachedResponse(text: string, ephemeral = false) {
+  return {
+    content: [{
+      type: "text" as const,
+      text,
+      // MCP cache_control hint — tells Claude to cache this content block
+      // "ephemeral" = cache for the duration of the conversation
+      ...(ephemeral ? {} : { _meta: { cacheControl: { type: "ephemeral" } } }),
+    }],
+    // Top-level _meta for SDK-level cache hints
+    _meta: {
+      cacheControl: { type: "ephemeral" },
+    },
+  };
+}
+
+/** Read-only tools that benefit from caching */
+const READ_ONLY_TOOLS = new Set([
+  "wyrm_list_projects",
+  "wyrm_project_context",
+  "wyrm_global_context",
+  "wyrm_all_quests",
+  "wyrm_data_query",
+  "wyrm_data_categories",
+  "wyrm_search",
+  "wyrm_stats",
+]);
+
+/** Tools that mutate data — invalidate relevant caches */
+const WRITE_TOOLS = new Set([
+  "wyrm_session_start",
+  "wyrm_session_update",
+  "wyrm_quest_add",
+  "wyrm_quest_complete",
+  "wyrm_data_insert",
+  "wyrm_data_batch_insert",
+  "wyrm_set_global",
+  "wyrm_scan_projects",
+  "wyrm_sync",
+  "wyrm_maintenance",
+]);
+
 const server = new Server(
   {
     name: "wyrm",
-    version: "3.0.0",
+    version: "3.1.0",
   },
   {
     capabilities: {
@@ -278,6 +403,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
       },
     },
+    // Usage & Cost Tracking
+    {
+      name: "wyrm_usage",
+      description: "View token usage stats, cache hit rates, and estimated cost savings. Helps monitor and optimize AI credit consumption.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          last: { type: "number", description: "Show stats for last N calls (default: all)" },
+          reset: { type: "boolean", description: "Reset usage counters" },
+        },
+      },
+    },
     // Auto-Configure
     {
       name: "wyrm_setup",
@@ -297,8 +434,47 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 // Tool implementations
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
+  const startTime = performance.now();
+  const argsStr = JSON.stringify(args || {});
+  const tokensIn = estimateTokens(argsStr);
+  
+  // Cache key for read-only tools
+  const cacheKey = READ_ONLY_TOOLS.has(name) ? `${name}:${argsStr}` : null;
+  
+  // Check in-memory cache for read-only tools
+  if (cacheKey) {
+    const cached = cache.get<{ content: Array<{ type: string; text: string }> }>(cacheKey);
+    if (cached) {
+      const ms = Math.round(performance.now() - startTime);
+      const tokensOut = estimateTokens(JSON.stringify(cached));
+      trackUsage({ tool: name, tokens_in: tokensIn, tokens_out: tokensOut, cached: true, ms, timestamp: new Date().toISOString() });
+      
+      // Return cached response with cache_control hints
+      return {
+        ...cached,
+        _meta: { cacheControl: { type: "ephemeral" } },
+      };
+    }
+  }
+  
+  // Invalidate caches on write operations
+  if (WRITE_TOOLS.has(name)) {
+    const projectPath = (args as any)?.projectPath;
+    if (projectPath) {
+      // Invalidate project-specific caches
+      cache.invalidate(projectPath);
+    }
+    // Invalidate global caches
+    cache.invalidate('wyrm_list_projects');
+    cache.invalidate('wyrm_global_context');
+    cache.invalidate('wyrm_all_quests');
+    cache.invalidate('wyrm_stats');
+  }
+
+  let result: any;
 
   try {
+    result = await (async () => {
     switch (name) {
       // ==================== PROJECT MANAGEMENT ====================
       case "wyrm_scan_projects": {
@@ -333,18 +509,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             `- **Path:** ${p.path}\n` +
             `- **Stack:** ${p.stack || 'unknown'}\n` +
             `- **Branch:** ${p.branch || 'N/A'}\n` +
-            `- **Last Commit:** ${p.last_commit || 'N/A'}\n` +
-            `- **Sessions:** ${stats.sessions}\n` +
-            `- **Quests:** ${stats.quests.pending} pending, ${stats.quests.completed} completed\n` +
-            `- **Data Points:** ${stats.dataPoints}`;
+            `- **Sessions:** ${stats.sessions} | **Quests:** ${stats.quests.pending}p/${stats.quests.completed}c\n` +
+            `- **Data:** ${stats.dataPoints}`;
         }).join('\n\n');
         
-        return {
-          content: [{
-            type: "text",
-            text: `🐉 **${projects.length} Projects**\n\n${projectList}`
-          }]
-        };
+        const response = cachedResponse(`🐉 **${projects.length} Projects**\n\n${projectList}`);
+        if (cacheKey) cache.set(cacheKey, response, 60000); // 60s TTL
+        return response;
       }
 
       case "wyrm_project_context": {
@@ -371,12 +542,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           quests
         );
         
-        return {
-          content: [{
-            type: "text",
-            text: `🐉 **Context for ${project.name}**\n\n${context}`
-          }]
-        };
+        const response = cachedResponse(`🐉 **Context for ${project.name}**\n\n${context}`);
+        if (cacheKey) cache.set(cacheKey, response, 30000); // 30s TTL — context changes more often
+        return response;
       }
 
       // ==================== GLOBAL CONTEXT ====================
@@ -415,7 +583,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }
         }
         
-        return { content: [{ type: "text", text }] };
+        const response = cachedResponse(text);
+        if (cacheKey) cache.set(cacheKey, response, 45000); // 45s TTL
+        return response;
       }
 
       // ==================== SESSIONS ====================
@@ -536,12 +706,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           return `${emoji} [${(q as any).project_name}] #${q.id}: ${q.title}`;
         }).join('\n');
         
-        return {
-          content: [{
-            type: "text",
-            text: `🐉 **${quests.length} Pending Quests**\n\n${text}`
-          }]
-        };
+        const response = cachedResponse(`🐉 **${quests.length} Pending Quests**\n\n${text}`);
+        if (cacheKey) cache.set(cacheKey, response, 30000);
+        return response;
       }
 
       // ==================== DATA LAKE ====================
@@ -616,12 +783,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           `- **${d.category}/${d.key}:** ${d.value.slice(0, 100)}${d.value.length > 100 ? '...' : ''}`
         ).join('\n');
         
-        return {
-          content: [{
-            type: "text",
-            text: `🐉 **${results.length} Results**\n\n${text}`
-          }]
-        };
+        const response = cachedResponse(`🐉 **${results.length} Results**\n\n${text}`);
+        if (cacheKey) cache.set(cacheKey, response, 30000);
+        return response;
       }
 
       case "wyrm_data_categories": {
@@ -635,12 +799,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const categories = db.getDataCategories(project.id);
         const text = categories.map(c => `- ${c.category}: ${c.count} items`).join('\n');
         
-        return {
-          content: [{
-            type: "text",
-            text: `🐉 **Data Categories for ${project.name}**\n\n${text}`
-          }]
-        };
+        const response = cachedResponse(`🐉 **Data Categories for ${project.name}**\n\n${text}`);
+        if (cacheKey) cache.set(cacheKey, response, 30000);
+        return response;
       }
 
       // ==================== GLOBAL CONTEXT ====================
@@ -702,7 +863,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }
         }
         
-        return { content: [{ type: "text", text }] };
+        const response = cachedResponse(text);
+        if (cacheKey) cache.set(cacheKey, response, 20000); // 20s — search results change
+        return response;
       }
 
       // ==================== SYNC & MAINTENANCE ====================
@@ -745,19 +908,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "wyrm_stats": {
         const stats = db.getStats();
+        const cacheStats = cache.stats();
+        const usage = getUsageStats();
         
-        return {
-          content: [{
-            type: "text",
-            text: `🐉 **Wyrm Statistics**\n\n` +
-              `- **Projects:** ${stats.projects}\n` +
-              `- **Sessions:** ${stats.sessions}\n` +
-              `- **Quests:** ${stats.quests}\n` +
-              `- **Data Points:** ${stats.dataPoints}\n` +
-              `- **Active Tokens:** ~${stats.totalTokens.toLocaleString()}\n` +
-              `- **Database Size:** ${stats.dbSize}`
-          }]
-        };
+        const response = cachedResponse(
+          `🐉 **Wyrm Statistics**\n\n` +
+          `- **Projects:** ${stats.projects}\n` +
+          `- **Sessions:** ${stats.sessions}\n` +
+          `- **Quests:** ${stats.quests}\n` +
+          `- **Data Points:** ${stats.dataPoints}\n` +
+          `- **Active Tokens:** ~${stats.totalTokens.toLocaleString()}\n` +
+          `- **Database Size:** ${stats.dbSize}\n\n` +
+          `**Cache:** ${cacheStats.size} entries | Hit rate: ${usage.cacheHitRate}\n` +
+          `**Usage:** ${usage.totalCalls} calls | ~${usage.tokensSaved.toLocaleString()} tokens saved by cache`
+        );
+        if (cacheKey) cache.set(cacheKey, response, 15000);
+        return response;
       }
 
       case "wyrm_maintenance": {
@@ -845,13 +1011,69 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return { content: [{ type: "text", text }] };
       }
 
+      // ==================== USAGE TRACKING ====================
+      case "wyrm_usage": {
+        const { last, reset } = args as { last?: number; reset?: boolean };
+        
+        if (reset) {
+          usageLog.length = 0;
+          responseFingerprints.clear();
+          cache.invalidate();
+          return { content: [{ type: "text", text: "🐉 Usage counters reset, caches cleared." }] };
+        }
+        
+        const usage = getUsageStats(last);
+        const cacheStats = cache.stats();
+        
+        let text = `🐉 **Wyrm Usage Report**\n\n`;
+        text += `## Overview${last ? ` (last ${last} calls)` : ''}\n`;
+        text += `- **Total Calls:** ${usage.totalCalls}\n`;
+        text += `- **Cache Hits:** ${usage.cachedCalls} (${usage.cacheHitRate})\n`;
+        text += `- **Tokens In:** ~${usage.totalTokensIn.toLocaleString()}\n`;
+        text += `- **Tokens Out:** ~${usage.totalTokensOut.toLocaleString()}\n`;
+        text += `- **Tokens Saved (cache):** ~${usage.tokensSaved.toLocaleString()}\n`;
+        text += `- **Avg Response:** ${usage.avgResponseMs}ms\n`;
+        text += `- **Active Cache Entries:** ${cacheStats.size}\n\n`;
+        
+        if (usage.topTools.length > 0) {
+          text += `## Top Tools by Token Usage\n`;
+          for (const t of usage.topTools) {
+            text += `- **${t.tool}:** ${t.calls} calls, ~${t.tokens.toLocaleString()} tokens\n`;
+          }
+          text += '\n';
+        }
+        
+        // Cost estimate (Claude Opus pricing: $15/M input, $75/M output)
+        const costInput = (usage.totalTokensIn / 1_000_000) * 15;
+        const costOutput = (usage.totalTokensOut / 1_000_000) * 75;
+        const costSaved = (usage.tokensSaved / 1_000_000) * 75;
+        
+        text += `## Estimated Cost (Claude Opus rates)\n`;
+        text += `- **Input:** $${costInput.toFixed(4)}\n`;
+        text += `- **Output:** $${costOutput.toFixed(4)}\n`;
+        text += `- **Saved by cache:** $${costSaved.toFixed(4)}\n`;
+        text += `- **Net cost:** $${(costInput + costOutput - costSaved).toFixed(4)}`;
+        
+        return cachedResponse(text, true); // ephemeral — don't cache the usage report itself
+      }
+
       default:
         return {
           content: [{ type: "text", text: `Unknown tool: ${name}` }],
           isError: true,
         };
     }
+    })();
+    
+    // Track usage for all non-cached responses
+    const ms = Math.round(performance.now() - startTime);
+    const tokensOut = estimateTokens(JSON.stringify(result));
+    trackUsage({ tool: name, tokens_in: tokensIn, tokens_out: tokensOut, cached: false, ms, timestamp: new Date().toISOString() });
+    
+    return result;
   } catch (error) {
+    const ms = Math.round(performance.now() - startTime);
+    trackUsage({ tool: name, tokens_in: tokensIn, tokens_out: 0, cached: false, ms, timestamp: new Date().toISOString() });
     return {
       content: [{ type: "text", text: `Error: ${error}` }],
       isError: true,

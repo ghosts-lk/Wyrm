@@ -7,18 +7,25 @@
 class MemCache {
   private cache = new Map<string, { data: unknown; expires: number }>();
   private defaultTTL: number;
+  private hits = 0;
+  private misses = 0;
 
-  constructor(ttlSeconds = 30) {
+  constructor(ttlSeconds = 60) {
     this.defaultTTL = ttlSeconds * 1000;
   }
 
   get<T>(key: string): T | undefined {
     const entry = this.cache.get(key);
-    if (!entry) return undefined;
-    if (Date.now() > entry.expires) {
-      this.cache.delete(key);
+    if (!entry) {
+      this.misses++;
       return undefined;
     }
+    if (Date.now() > entry.expires) {
+      this.cache.delete(key);
+      this.misses++;
+      return undefined;
+    }
+    this.hits++;
     return entry.data as T;
   }
 
@@ -39,13 +46,20 @@ class MemCache {
     }
   }
 
-  stats(): { size: number; keys: string[] } {
-    return { size: this.cache.size, keys: [...this.cache.keys()] };
+  stats(): { size: number; keys: string[]; hits: number; misses: number; hitRate: string } {
+    const total = this.hits + this.misses;
+    return {
+      size: this.cache.size,
+      keys: [...this.cache.keys()],
+      hits: this.hits,
+      misses: this.misses,
+      hitRate: total > 0 ? `${((this.hits / total) * 100).toFixed(1)}%` : '0%',
+    };
   }
 }
 
-// Singleton cache
-export const cache = new MemCache(30);
+// Singleton cache — 60s default TTL (was 30s, increased for credit savings)
+export const cache = new MemCache(60);
 
 // Compact response formats - reduce token usage
 export function compactProject(p: {
