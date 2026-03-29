@@ -28,9 +28,19 @@ import { summarizeSession, createContextBundle } from "./summarizer.js";
 import { detectClients, autoConfigureAll, removeFromAll, getStatusSummary, findWyrmServerPath, getDefaultDbPath } from "./autoconfig.js";
 import { cache, compactProject, compactQuest, compactSession, estimateTokens, guardSize } from "./performance.js";
 import { createHash } from "crypto";
+import { getGlobalOrchestrator, initializeOrchestrator, classifyTask, getDefaultConfig, type OrchestrationConfig, type TaskType } from "./auto-orchestrator.js";
 
 const db = new WyrmDB();
 const sync = new WyrmSync(db);
+
+// ==================== AUTO-ORCHESTRATION ====================
+const orchestrator = initializeOrchestrator({
+  autoOrchestrateEnabled: true,
+  minConfidenceThreshold: 65,
+  maxParallelAgents: 6,
+  defaultHaikuBoosting: true,
+  trackMetrics: true,
+});
 
 // ==================== USAGE TRACKING ====================
 interface UsageEntry {
@@ -135,6 +145,12 @@ const READ_ONLY_TOOLS = new Set([
   "wyrm_data_categories",
   "wyrm_search",
   "wyrm_stats",
+  "wyrm_skill_list",
+  "wyrm_skill_get",
+  "wyrm_skill_search",
+  "wyrm_skill_stats",
+  "wyrm_orchestration_config",
+  "wyrm_orchestration_stats",
 ]);
 
 /** Tools that mutate data — invalidate relevant caches */
@@ -149,6 +165,10 @@ const WRITE_TOOLS = new Set([
   "wyrm_scan_projects",
   "wyrm_sync",
   "wyrm_maintenance",
+  "wyrm_skill_register",
+  "wyrm_skill_delete",
+  "wyrm_skill_activate",
+  "wyrm_skill_deactivate",
 ]);
 
 const server = new Server(
@@ -345,6 +365,100 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ["projectPath"],
       },
     },
+    // Skill Management
+    {
+      name: "wyrm_skill_register",
+      description: "Register or update a skill and store metadata in Wyrm",
+      inputSchema: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Skill name (e.g., 'professional-lead-scraping')" },
+          description: { type: "string", description: "Skill description" },
+          skillPath: { type: "string", description: "File path to skill (e.g., ~/.copilot/skills/name or project relative path)" },
+          category: { type: "string", description: "Skill category (e.g., 'data-extraction', 'testing', 'documentation')" },
+          author: { type: "string", description: "Skill author or creator" },
+          version: { type: "string", description: "Skill version" },
+          tags: { type: "string", description: "Comma-separated tags (e.g., 'scraping,leads,email-validation')" },
+        },
+        required: ["name", "description", "skillPath"],
+      },
+    },
+    {
+      name: "wyrm_skill_list",
+      description: "List registered skills with filtering options",
+      inputSchema: {
+        type: "object",
+        properties: {
+          active: { type: "boolean", description: "Filter by active status" },
+          category: { type: "string", description: "Filter by category" },
+          search: { type: "string", description: "Full-text search by name, description, or tags" },
+        },
+      },
+    },
+    {
+      name: "wyrm_skill_get",
+      description: "Get detailed information about a specific skill",
+      inputSchema: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Skill name" },
+        },
+        required: ["name"],
+      },
+    },
+    {
+      name: "wyrm_skill_delete",
+      description: "Delete a skill from Wyrm registry",
+      inputSchema: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Skill name" },
+        },
+        required: ["name"],
+      },
+    },
+    {
+      name: "wyrm_skill_activate",
+      description: "Activate a skill (mark as active)",
+      inputSchema: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Skill name" },
+        },
+        required: ["name"],
+      },
+    },
+    {
+      name: "wyrm_skill_deactivate",
+      description: "Deactivate a skill (mark as inactive)",
+      inputSchema: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Skill name" },
+        },
+        required: ["name"],
+      },
+    },
+    {
+      name: "wyrm_skill_search",
+      description: "Search for skills by name, description, or tags",
+      inputSchema: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Search query" },
+          limit: { type: "number", description: "Max results (default: 20)" },
+        },
+        required: ["query"],
+      },
+    },
+    {
+      name: "wyrm_skill_stats",
+      description: "Get statistics on registered skills",
+      inputSchema: {
+        type: "object",
+        properties: {},
+      },
+    },
     // Global Context
     {
       name: "wyrm_set_global",
@@ -426,6 +540,41 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           serverPath: { type: "string", description: "Override Wyrm server path (auto-detected if empty)" },
           dbPath: { type: "string", description: "Override database path (default: ~/.wyrm/wyrm.db)" },
         },
+      },
+    },
+    // Auto-Orchestration
+    {
+      name: "wyrm_orchestrate_task",
+      description: "Classify a task and get automatic orchestration recommendation (ensemble voting, parallel research, etc)",
+      inputSchema: {
+        type: "object",
+        properties: {
+          task: { type: "string", description: "Task description to classify and orchestrate" },
+        },
+        required: ["task"],
+      },
+    },
+    {
+      name: "wyrm_orchestration_config",
+      description: "Get or update auto-orchestration configuration",
+      inputSchema: {
+        type: "object",
+        properties: {
+          get: { type: "boolean", description: "Get current configuration (default: true)" },
+          autoOrchestrateEnabled: { type: "boolean", description: "Enable/disable auto-orchestration" },
+          minConfidenceThreshold: { type: "number", description: "Min confidence for auto-apply (0-100)" },
+          maxParallelAgents: { type: "number", description: "Max agents to spawn in parallel" },
+          defaultHaikuBoosting: { type: "boolean", description: "Auto-boost all Haiku calls" },
+          trackMetrics: { type: "boolean", description: "Track quality/cost metrics" },
+        },
+      },
+    },
+    {
+      name: "wyrm_orchestration_stats",
+      description: "Get auto-orchestration effectiveness statistics and task distribution",
+      inputSchema: {
+        type: "object",
+        properties: {},
       },
     },
   ],
@@ -817,11 +966,210 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
+      // ==================== SKILLS MANAGEMENT ====================
+      case "wyrm_skill_register": {
+        const { name, description, skillPath, category, author, version, tags } = args as {
+          name: string;
+          description: string;
+          skillPath: string;
+          category?: string;
+          author?: string;
+          version?: string;
+          tags?: string;
+        };
+        
+        const skill = db.registerSkill(name, description, skillPath, category, author, version, tags);
+        cache.invalidate('wyrm_skill_list');
+        cache.invalidate('wyrm_skill_stats');
+        
+        return {
+          content: [{
+            type: "text",
+            text: `🐉 **Skill Registered**\n\nName: ${skill.name}\nPath: ${skill.skill_path}\nCategory: ${skill.category || 'uncategorized'}\nVersion: ${skill.version || '1.0.0'}\nStatus: ${skill.is_active ? 'Active' : 'Inactive'}`
+          }]
+        };
+      }
+
+      case "wyrm_skill_list": {
+        const { active, category, search } = args as { active?: boolean; category?: string; search?: string };
+        const skills = db.listSkills(active, category, search);
+        
+        if (skills.length === 0) {
+          return {
+            content: [{
+              type: "text",
+              text: `🐉 **Skills**\n\nNo skills found matching your criteria.`
+            }]
+          };
+        }
+        
+        let text = `🐉 **Skills Registry** (${skills.length} total)\n\n`;
+        for (const skill of skills) {
+          text += `### ${skill.name} ${skill.is_active ? '✅' : '❌'}\n`;
+          text += `Category: ${skill.category || 'uncategorized'}\n`;
+          text += `Description: ${skill.description}\n`;
+          if (skill.version) text += `Version: ${skill.version}\n`;
+          if (skill.author) text += `Author: ${skill.author}\n`;
+          if (skill.tags) text += `Tags: ${skill.tags}\n`;
+          text += `Path: \`${skill.skill_path}\`\n`;
+          text += `Used: ${skill.usage_count} times`;
+          if (skill.last_used) text += ` (last: ${skill.last_used})`;
+          text += '\n\n';
+        }
+        
+        const response = cachedResponse(text);
+        if (cacheKey) cache.set(cacheKey, response, 30000);
+        return response;
+      }
+
+      case "wyrm_skill_get": {
+        const { name } = args as { name: string };
+        const skill = db.getSkill(name);
+        
+        if (!skill) {
+          return {
+            content: [{
+              type: "text",
+              text: `🐉 **Skill Not Found**: ${name}`
+            }]
+          };
+        }
+        
+        let text = `🐉 **Skill: ${skill.name}** ${skill.is_active ? '✅ Active' : '❌ Inactive'}\n\n`;
+        text += `**Description:** ${skill.description}\n`;
+        text += `**Path:** \`${skill.skill_path}\`\n`;
+        text += `**Category:** ${skill.category || 'uncategorized'}\n`;
+        if (skill.author) text += `**Author:** ${skill.author}\n`;
+        if (skill.version) text += `**Version:** ${skill.version}\n`;
+        if (skill.tags) text += `**Tags:** ${skill.tags}\n`;
+        text += `**Usage Count:** ${skill.usage_count}\n`;
+        if (skill.last_used) text += `**Last Used:** ${skill.last_used}\n`;
+        text += `**Created:** ${skill.created_at}\n`;
+        text += `**Updated:** ${skill.updated_at}\n`;
+        
+        const response = cachedResponse(text);
+        if (cacheKey) cache.set(cacheKey, response, 30000);
+        return response;
+      }
+
+      case "wyrm_skill_delete": {
+        const { name } = args as { name: string };
+        const success = db.deleteSkill(name);
+        cache.invalidate('wyrm_skill_list');
+        cache.invalidate('wyrm_skill_stats');
+        
+        if (success) {
+          return {
+            content: [{
+              type: "text",
+              text: `🐉 **Skill Deleted**: ${name}`
+            }]
+          };
+        } else {
+          return {
+            content: [{
+              type: "text",
+              text: `🐉 **Skill Not Found**: ${name}`
+            }]
+          };
+        }
+      }
+
+      case "wyrm_skill_activate": {
+        const { name } = args as { name: string };
+        const skill = db.activateSkill(name);
+        cache.invalidate('wyrm_skill_list');
+        cache.invalidate('wyrm_skill_stats');
+        
+        if (skill) {
+          return {
+            content: [{
+              type: "text",
+              text: `🐉 **Skill Activated**: ${name}`
+            }]
+          };
+        } else {
+          return {
+            content: [{
+              type: "text",
+              text: `🐉 **Skill Not Found**: ${name}`
+            }]
+          };
+        }
+      }
+
+      case "wyrm_skill_deactivate": {
+        const { name } = args as { name: string };
+        const skill = db.deactivateSkill(name);
+        cache.invalidate('wyrm_skill_list');
+        cache.invalidate('wyrm_skill_stats');
+        
+        if (skill) {
+          return {
+            content: [{
+              type: "text",
+              text: `🐉 **Skill Deactivated**: ${name}`
+            }]
+          };
+        } else {
+          return {
+            content: [{
+              type: "text",
+              text: `🐉 **Skill Not Found**: ${name}`
+            }]
+          };
+        }
+      }
+
+      case "wyrm_skill_search": {
+        const { query, limit } = args as { query: string; limit?: number };
+        const skills = db.searchSkills(query, limit || 20);
+        
+        if (skills.length === 0) {
+          return {
+            content: [{
+              type: "text",
+              text: `🐉 **Search Skills**: No results found for "${query}"`
+            }]
+          };
+        }
+        
+        let text = `🐉 **Skill Search Results for "${query}"** (${skills.length} found)\n\n`;
+        for (const skill of skills) {
+          text += `- **${skill.name}** (${skill.category || 'uncategorized'}) ${skill.is_active ? '✅' : '❌'}\n`;
+          text += `  ${skill.description}\n\n`;
+        }
+        
+        const response = cachedResponse(text);
+        if (cacheKey) cache.set(cacheKey, response, 30000);
+        return response;
+      }
+
+      case "wyrm_skill_stats": {
+        const stats = db.getSkillStats();
+        
+        let text = `🐉 **Skill Statistics**\n\n`;
+        text += `**Total Skills:** ${stats.total}\n`;
+        text += `**Active Skills:** ${stats.active}\n`;
+        text += `**Inactive Skills:** ${stats.total - stats.active}\n\n`;
+        
+        if (Object.keys(stats.byCategory).length > 0) {
+          text += `**By Category:**\n`;
+          for (const [category, count] of Object.entries(stats.byCategory)) {
+            text += `- ${category}: ${count}\n`;
+          }
+        }
+        
+        const response = cachedResponse(text);
+        if (cacheKey) cache.set(cacheKey, response, 30000);
+        return response;
+      }
+
       // ==================== SEARCH ====================
       case "wyrm_search": {
         const { query, type, projectPath } = args as {
           query: string;
-          type?: 'all' | 'sessions' | 'quests' | 'data';
+          type?: 'all' | 'sessions' | 'quests' | 'data' | 'skills';
           projectPath?: string;
         };
         
@@ -859,6 +1207,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             text += `## Data (${data.length})\n`;
             for (const d of data.slice(0, 10)) {
               text += `- ${d.category}/${d.key}\n`;
+            }
+            text += '\n';
+          }
+        }
+        
+        if (searchType === 'all' || searchType === 'skills') {
+          const skills = db.searchSkills(query, 10);
+          if (skills.length > 0) {
+            text += `## Skills (${skills.length})\n`;
+            for (const s of skills) {
+              text += `- **${s.name}** (${s.category || 'uncategorized'}) ${s.is_active ? '\u2705' : '\u274c'}\n`;
+              text += `  ${s.description}\n`;
             }
           }
         }
@@ -1055,6 +1415,99 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         text += `- **Net cost:** $${(costInput + costOutput - costSaved).toFixed(4)}`;
         
         return cachedResponse(text, true); // ephemeral — don't cache the usage report itself
+      }
+
+      // ==================== AUTO-ORCHESTRATION ====================
+      case "wyrm_orchestrate_task": {
+        const { task } = args as { task: string };
+        
+        const plan = await orchestrator.processTask(task);
+        
+        let text = `🐉 **Orchestration Plan**\n\n`;
+        text += `## Task Classification\n`;
+        text += `- **Type:** ${plan.taskType}\n`;
+        text += `- **Confidence:** ${plan.confidence}%\n`;
+        text += `- **Recommended Approach:** ${plan.approach}\n\n`;
+        
+        if (plan.appliedPatterns.length > 0) {
+          text += `## Patterns Applied\n`;
+          for (const pattern of plan.appliedPatterns) {
+            text += `- ✓ ${pattern}\n`;
+          }
+          text += '\n';
+        }
+        
+        text += `## Expected Outcomes\n`;
+        text += `- **Quality Boost:** +${plan.quality - 60}% (estimated)\n`;
+        text += `- **Cost Savings:** ${plan.costSavings}% vs Opus\n`;
+        text += `- **Parallel Execution:** ~${plan.parallelExecutionTime}ms for full pipeline\n\n`;
+        
+        text += `## Token Efficiency\n`;
+        text += `- **Boosting Overhead:** ~${plan.metrics.tokensBoosting} tokens\n`;
+        text += `- **Ensemble Voting:** ~${plan.metrics.tokensEnsemble} tokens\n`;
+        text += `- **Verification:** ~${plan.metrics.tokensVerification} tokens\n`;
+        text += `- **Total Estimated:** ~${plan.metrics.tokensBoosting + plan.metrics.tokensEnsemble + plan.metrics.tokensVerification} tokens\n`;
+        
+        return { content: [{ type: "text", text }] };
+      }
+
+      case "wyrm_orchestration_config": {
+        const { 
+          get = true,
+          autoOrchestrateEnabled,
+          minConfidenceThreshold,
+          maxParallelAgents,
+          defaultHaikuBoosting,
+          trackMetrics,
+        } = args as Partial<OrchestrationConfig> & { get?: boolean };
+        
+        // Update config if any properties provided
+        if (!get && (autoOrchestrateEnabled !== undefined || minConfidenceThreshold !== undefined || 
+                     maxParallelAgents !== undefined || defaultHaikuBoosting !== undefined || 
+                     trackMetrics !== undefined)) {
+          const updates: Partial<OrchestrationConfig> = {};
+          if (autoOrchestrateEnabled !== undefined) updates.autoOrchestrateEnabled = autoOrchestrateEnabled;
+          if (minConfidenceThreshold !== undefined) updates.minConfidenceThreshold = minConfidenceThreshold;
+          if (maxParallelAgents !== undefined) updates.maxParallelAgents = maxParallelAgents;
+          if (defaultHaikuBoosting !== undefined) updates.defaultHaikuBoosting = defaultHaikuBoosting;
+          if (trackMetrics !== undefined) updates.trackMetrics = trackMetrics;
+          
+          orchestrator.updateConfig(updates);
+          
+          return { content: [{ type: "text", text: `🐉 Configuration updated:\n${JSON.stringify(updates, null, 2)}` }] };
+        }
+        
+        // Get current config
+        const config = getDefaultConfig();
+        let text = `🐉 **Auto-Orchestration Configuration**\n\n`;
+        text += `- **Auto-Orchestrate Enabled:** ${config.autoOrchestrateEnabled ? '✓ Yes' : '✗ No'}\n`;
+        text += `- **Min Confidence Threshold:** ${config.minConfidenceThreshold}%\n`;
+        text += `- **Max Parallel Agents:** ${config.maxParallelAgents}\n`;
+        text += `- **Default Haiku Boosting:** ${config.defaultHaikuBoosting ? '✓ Yes' : '✗ No'}\n`;
+        text += `- **Track Metrics:** ${config.trackMetrics ? '✓ Yes' : '✗ No'}\n`;
+        text += `- **Thinking Budget:** ${config.thinkingBudget} tokens max\n`;
+        
+        return cachedResponse(text);
+      }
+
+      case "wyrm_orchestration_stats": {
+        const stats = orchestrator.getStats();
+        
+        let text = `🐉 **Auto-Orchestration Statistics**\n\n`;
+        text += `## Overall\n`;
+        text += `- **Tasks Processed:** ${stats.tasksProcessed}\n`;
+        text += `- **Average Quality Boost:** +${stats.estimatedQualityBoost}%\n`;
+        text += `- **Average Cost Savings:** ${stats.estimatedCostSavings}% vs Opus\n`;
+        text += `- **Average Complexity:** ${stats.averageComplexity}\n\n`;
+        
+        text += `## Task Distribution\n`;
+        const total = stats.tasksProcessed || 1;
+        for (const [type, count] of Object.entries(stats.distribution)) {
+          const pct = Math.round((count / total) * 100);
+          text += `- **${type}:** ${count} (${pct}%)\n`;
+        }
+        
+        return cachedResponse(text);
       }
 
       default:

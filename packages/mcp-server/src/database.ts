@@ -85,6 +85,22 @@ export interface WatchDir {
   last_scan: string;
 }
 
+export interface Skill {
+  id: number;
+  name: string;
+  description: string;
+  skill_path: string;
+  category?: string;
+  author?: string;
+  version?: string;
+  tags?: string;
+  is_active: boolean;
+  usage_count: number;
+  last_used?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export class WyrmDB {
   private db: Database.Database;
   private readonly BATCH_SIZE = 1000;
@@ -245,6 +261,23 @@ export class WyrmDB {
         updated_at TEXT DEFAULT (datetime('now'))
       );
       
+      -- Skills management for Copilot skill integration
+      CREATE TABLE IF NOT EXISTS skills (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL,
+        description TEXT,
+        skill_path TEXT NOT NULL,
+        category TEXT,
+        author TEXT,
+        version TEXT,
+        tags TEXT,
+        is_active INTEGER DEFAULT 1,
+        usage_count INTEGER DEFAULT 0,
+        last_used TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+      
       -- Indexes for performance
       CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
       CREATE INDEX IF NOT EXISTS idx_sessions_date ON sessions(date);
@@ -256,6 +289,9 @@ export class WyrmDB {
       CREATE INDEX IF NOT EXISTS idx_data_lake_project ON data_lake(project_id);
       CREATE INDEX IF NOT EXISTS idx_data_lake_category ON data_lake(category);
       CREATE INDEX IF NOT EXISTS idx_data_lake_key ON data_lake(key);
+      CREATE INDEX IF NOT EXISTS idx_skills_name ON skills(name);
+      CREATE INDEX IF NOT EXISTS idx_skills_category ON skills(category);
+      CREATE INDEX IF NOT EXISTS idx_skills_active ON skills(is_active);
       
       -- Full-text search for fast queries
       CREATE VIRTUAL TABLE IF NOT EXISTS sessions_fts USING fts5(
@@ -271,6 +307,11 @@ export class WyrmDB {
       CREATE VIRTUAL TABLE IF NOT EXISTS data_lake_fts USING fts5(
         key, value,
         content='data_lake', content_rowid='id'
+      );
+      
+      CREATE VIRTUAL TABLE IF NOT EXISTS skills_fts USING fts5(
+        name, description, tags,
+        content='skills', content_rowid='id'
       );
       
       -- Triggers to keep FTS in sync
@@ -291,6 +332,15 @@ export class WyrmDB {
       CREATE TRIGGER IF NOT EXISTS quests_ad AFTER DELETE ON quests BEGIN
         INSERT INTO quests_fts(quests_fts, rowid, title, description)
         VALUES('delete', old.id, old.title, old.description);
+      END;
+      
+      CREATE TRIGGER IF NOT EXISTS skills_ai AFTER INSERT ON skills BEGIN
+        INSERT INTO skills_fts(rowid, name, description, tags) VALUES (new.id, new.name, new.description, new.tags);
+      END;
+      
+      CREATE TRIGGER IF NOT EXISTS skills_ad AFTER DELETE ON skills BEGIN
+        INSERT INTO skills_fts(skills_fts, rowid, name, description, tags)
+        VALUES('delete', old.id, old.name, old.description, old.tags);
       END;
     `);
   }
@@ -767,6 +817,147 @@ export class WyrmDB {
       result[row.key] = row.value;
     }
     return result;
+  }
+  
+  // ==================== SKILLS MANAGEMENT ====================
+  
+  registerSkill(name: string, description: string, skillPath: string, category?: string, author?: string, version?: string, tags?: string): Skill {
+    const result = this.resilience.withRetrySync(
+      () => this.db.prepare(`
+        INSERT INTO skills (name, description, skill_path, category, author, version, tags, is_active, usage_count)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0)
+        ON CONFLICT(name) DO UPDATE SET
+          description = excluded.description,
+          skill_path = excluded.skill_path,
+          category = excluded.category,
+          author = excluded.author,
+          version = excluded.version,
+          tags = excluded.tags,
+          updated_at = datetime('now'),
+          is_active = 1
+        RETURNING *
+      `).get(name, description, skillPath, category || null, author || null, version || null, tags || null) as Skill,
+      'registerSkill'
+    );
+    
+    if (!result.success) {
+      throw result.error || new Error('Failed to register skill');
+    }
+    
+    return result.data!;
+  }
+  
+  getSkill(name: string): Skill | undefined {
+    const skill = this.db.prepare('SELECT * FROM skills WHERE name = ?').get(name) as Skill | undefined;
+    if (skill) {
+      // Update last_used
+      this.db.prepare('UPDATE skills SET last_used = datetime(\'now\'), usage_count = usage_count + 1 WHERE id = ?').run(skill.id);
+    }
+    return skill;
+  }
+  
+  listSkills(active?: boolean, category?: string, search?: string): Skill[] {
+    let query = 'SELECT * FROM skills WHERE 1=1';
+    const params: any[] = [];
+    
+    if (active !== undefined) {
+      query += ' AND is_active = ?';
+      params.push(active ? 1 : 0);
+    }
+    
+    if (category) {
+      query += ' AND category = ?';
+      params.push(category);
+    }
+    
+    if (search) {
+      query += ' AND id IN (SELECT id FROM skills_fts WHERE skills_fts MATCH ?)';
+      params.push(search);
+    }
+    
+    query += ' ORDER BY updated_at DESC';
+    
+    return this.db.prepare(query).all(...params) as Skill[];
+  }
+  
+  searchSkills(query: string, limit = 20): Skill[] {
+    return this.db.prepare(`
+      SELECT s.* FROM skills s
+      JOIN skills_fts ON s.id = skills_fts.id
+      WHERE skills_fts MATCH ?
+      ORDER BY rank
+      LIMIT ?
+    `).all(query, limit) as Skill[];
+  }
+  
+  updateSkill(name: string, updates: Partial<Skill>): Skill | undefined {
+    const setClauses: string[] = [];
+    const values: any[] = [];
+    
+    if (updates.description !== undefined) {
+      setClauses.push('description = ?');
+      values.push(updates.description);
+    }
+    if (updates.skill_path !== undefined) {
+      setClauses.push('skill_path = ?');
+      values.push(updates.skill_path);
+    }
+    if (updates.category !== undefined) {
+      setClauses.push('category = ?');
+      values.push(updates.category);
+    }
+    if (updates.is_active !== undefined) {
+      setClauses.push('is_active = ?');
+      values.push(updates.is_active ? 1 : 0);
+    }
+    if (updates.tags !== undefined) {
+      setClauses.push('tags = ?');
+      values.push(updates.tags);
+    }
+    if (updates.version !== undefined) {
+      setClauses.push('version = ?');
+      values.push(updates.version);
+    }
+    
+    if (setClauses.length === 0) {
+      return this.getSkill(name);
+    }
+    
+    setClauses.push('updated_at = datetime(\'now\')');
+    values.push(name);
+    
+    return this.db.prepare(`
+      UPDATE skills SET ${setClauses.join(', ')} WHERE name = ? RETURNING *
+    `).get(...values) as Skill | undefined;
+  }
+  
+  deleteSkill(name: string): boolean {
+    const result = this.db.prepare('DELETE FROM skills WHERE name = ?').run(name);
+    return result.changes > 0;
+  }
+  
+  deactivateSkill(name: string): Skill | undefined {
+    return this.updateSkill(name, { is_active: false });
+  }
+  
+  activateSkill(name: string): Skill | undefined {
+    return this.updateSkill(name, { is_active: true });
+  }
+  
+  getSkillStats(): { total: number; active: number; byCategory: Record<string, number> } {
+    const total = (this.db.prepare('SELECT COUNT(*) as count FROM skills').get() as { count: number }).count;
+    const active = (this.db.prepare('SELECT COUNT(*) as count FROM skills WHERE is_active = 1').get() as { count: number }).count;
+    
+    const byCategoryRows = this.db.prepare(`
+      SELECT category, COUNT(*) as count FROM skills WHERE category IS NOT NULL GROUP BY category
+    `).all() as { category: string; count: number }[];
+    
+    const byCategory: Record<string, number> = {};
+    for (const row of byCategoryRows) {
+      byCategory[row.category] = row.count;
+    }
+    
+    return { total, active, byCategory };
   }
   
   // ==================== DATA LAKE ====================

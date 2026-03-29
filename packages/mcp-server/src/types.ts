@@ -80,12 +80,28 @@ export interface WatchDir {
   last_scan: string;
 }
 
+export interface Skill {
+  id: number;
+  name: string;
+  description: string;
+  skill_path: string;
+  category?: string;
+  author?: string;
+  version?: string;
+  tags?: string;
+  is_active: boolean;
+  usage_count: number;
+  last_used?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 // ==================== ENUMS ====================
 
 export type QuestPriority = 'critical' | 'high' | 'medium' | 'low';
 export type QuestStatus = 'pending' | 'in_progress' | 'completed' | 'abandoned';
 export type SyncDirection = 'import' | 'export' | 'both';
-export type SearchType = 'all' | 'sessions' | 'quests' | 'data';
+export type SearchType = 'all' | 'sessions' | 'quests' | 'data' | 'skills';
 
 // ==================== API TYPES ====================
 
