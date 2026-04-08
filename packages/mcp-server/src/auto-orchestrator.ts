@@ -370,7 +370,7 @@ export class AutoOrchestrator {
       distribution,
       estimatedQualityBoost: Math.round(avgQuality),
       estimatedCostSavings: Math.round(avgCost),
-      averageComplexity,
+      averageComplexity: avgComplexity,
     };
   }
   
