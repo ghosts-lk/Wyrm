@@ -1,225 +1,69 @@
-# 🐉 Wyrm
+# 🐉 Wyrm — Persistent Memory for AI Agents
 
-<div align="center">
+> Your AI forgets everything between sessions. Wyrm remembers.
 
-```
-██╗    ██╗██╗   ██╗██████╗ ███╗   ███╗
-██║    ██║╚██╗ ██╔╝██╔══██╗████╗ ████║
-██║ █╗ ██║ ╚████╔╝ ██████╔╝██╔████╔██║
-██║███╗██║  ╚██╔╝  ██╔══██╗██║╚██╔╝██║
-╚███╔███╔╝   ██║   ██║  ██║██║ ╚═╝ ██║
- ╚══╝╚══╝    ╚═╝   ╚═╝  ╚═╝╚═╝     ╚═╝
-    Persistent AI Memory + Auto-Orchestration v3.1.0
-           ghosts.lk
-```
-
-> *"The ancient wyrm remembers all. What was spoken, what was built, what remains undone."*
-
-**Persistent AI Memory System for Development**
-
-[![Version](https://img.shields.io/badge/Version-3.1.0-22c55e?style=for-the-badge)]()
-[![Node.js](https://img.shields.io/badge/Node.js-18+-339933?style=for-the-badge&logo=node.js)]()
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178C6?style=for-the-badge&logo=typescript)]()
-[![License](https://img.shields.io/badge/License-Proprietary-ff4444?style=for-the-badge)]()
-[![MCP](https://img.shields.io/badge/MCP-Native-purple?style=for-the-badge)]()
-
-[![CI](https://github.com/ghosts-lk/Wyrm/workflows/CI/badge.svg)](https://github.com/ghosts-lk/Wyrm/actions/workflows/ci.yml)
-[![Security](https://github.com/ghosts-lk/Wyrm/workflows/Security/badge.svg)](https://github.com/ghosts-lk/Wyrm/actions/workflows/security.yml)
-[![Integration](https://github.com/ghosts-lk/Wyrm/workflows/Integration%20Tests/badge.svg)](https://github.com/ghosts-lk/Wyrm/actions/workflows/integration.yml)
-[![Performance](https://github.com/ghosts-lk/Wyrm/workflows/Performance/badge.svg)](https://github.com/ghosts-lk/Wyrm/actions/workflows/performance.yml)
-
-By [Ghost Protocol](https://ghosts.lk) — *Private Repository*
-
-</div>
+[![npm version](https://img.shields.io/npm/v/@wyrm/mcp-server?color=22c55e&label=npm)](https://www.npmjs.com/package/@wyrm/mcp-server)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-79%20passing-22c55e)](packages/mcp-server)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![MCP](https://img.shields.io/badge/MCP-compatible-purple)](https://modelcontextprotocol.io)
 
 ---
 
-## Overview
+## The Problem
 
-Wyrm is a persistent memory system that gives AI assistants long-term memory across chat sessions. It enables AI tools (GitHub Copilot, Claude, GPT) to remember project context, track work sessions, manage tasks, and store structured data — all persisted in a local SQLite database with optional AES-256-GCM encryption.
+AI assistants lose all context between conversations. Every new session starts from zero — you re-explain your codebase, your preferences, your project architecture, the decisions you already made. It's like working with a brilliant colleague who has amnesia.
 
-Built as a **Model Context Protocol (MCP)** server in TypeScript, Wyrm integrates natively with VS Code's Copilot Chat and any MCP-compatible AI client. It also exposes an HTTP API for programmatic access.
+## The Solution
 
-**Codebase:** TypeScript/Node.js, MCP server + HTTP API + VS Code extension  
-**Vision:** Become the standard memory layer for AI-assisted development  
-**Status:** Production-ready ✅
+Wyrm is an [MCP](https://modelcontextprotocol.io) server that gives AI agents **persistent, searchable memory**. It stores projects, sessions, quests, skills, and arbitrary data in a local SQLite database with full-text search. Connect it once, and your AI remembers everything — across sessions, across tools, across projects.
+
+```
+You: "What did we decide about the auth architecture last week?"
+AI:  *checks Wyrm* "We went with JWT + refresh tokens, stored in httpOnly cookies.
+      Here's the session from Tuesday with the full discussion..."
+```
 
 ---
 
-## Table of Contents
+## Features
 
-- [Key Features](#key-features)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [MCP Tools](#mcp-tools)
-- [Project Structure](#project-structure)
-- [Architecture](#architecture)
-- [HTTP API](#http-api)
-- [Docker](#docker)
-- [CI/CD](#cicd)
-- [Security](#security)
-- [License](#license)
-
----
-
-## Key Features
-
-| Feature | Description |
-|---------|-------------|
-| **🧠 Persistent Memory** | SQLite-backed storage (WAL mode) that survives across chat sessions, IDE restarts, and system reboots |
-| **🔍 Full-Text Search** | FTS5 search across sessions, quests, and stored data — instant results across all projects |
-| **🤖 Auto-Orchestration** | **NEW:** Automatically applies optimal reasoning patterns (ensemble voting, Haiku boosting, parallel research) — 60% cost savings + 25-40% quality improvement |
-| **🔐 AES-256 Encryption** | Optional AES-256-GCM encryption for sensitive context data — keys never leave your machine |
-| **🚀 MCP Protocol** | Native Model Context Protocol support — works out of the box with GitHub Copilot, Claude, GPT |
-| **📊 Data Lake** | Store large structured datasets with batch insert/query operations for knowledge persistence |
-| **🔄 Auto-Sync** | Bi-directional sync between SQLite database and `.wyrm/` markdown files in each project |
-| **🎯 Quest Management** | Track tasks with priorities, tags, and cross-project visibility |
-| **📈 Token Tracking** | Automatic token estimation for context budgeting — never exceed context windows |
-| **🌐 HTTP API** | Full REST API on port 3333 for programmatic access and tooling integration |
-| **🐳 Docker** | Container image available via GitHub Container Registry |
-| **⚡ Auto-Configure** | One command connects Wyrm to any AI client — VS Code, Claude Desktop, Cursor, Windsurf, Zed — switch AIs anytime |
-
----
-
-## Auto-Orchestration (New in v3.1)
-
-**Wyrm now automatically applies advanced reasoning patterns without manual invocation.**
-
-Every task is instantly classified and the optimal pattern is auto-applied:
-
-| Task Type | Pattern Applied | Quality | Cost Savings | Parallel |
-|-----------|---|---|---|---|
-| **Decision** | Ensemble voting (4 approaches) | +35% | 45% | 4 agents |
-| **Generation** | Haiku boosting + self-critique | +45% | 35% | 1-3 |
-| **Research** | Parallel investigation (6 angles) | +40% | 40% | 4-6 |
-| **Verification** | Multi-angle review | +20% | 30% | 3 |
-| **Decomposition** | Task parallelization | +35% | 45% | 4-6 |
-
-### Example
-
-```bash
-# Submit a task
-wyrm_orchestrate_task
-task: "Design a microservice architecture"
-
-# Response:
-# Type: decomposition | Confidence: 78%
-# Patterns Applied: task-decomposition, parallel-synthesis, haiku-boosting
-# Quality: +35% | Cost Savings: 45% vs Opus
-```
-
-**Enabled by default.** Threshold: 65% confidence. Results auto-stored in data lake. See [AUTO_ORCHESTRATION_GUIDE.md](docs/AUTO_ORCHESTRATION_GUIDE.md) for details.
-
----
-
-## Auto-Orchestration (New in v3.1)
-
-**Wyrm now automatically applies advanced reasoning patterns without manual invocation.**
-
-Every task is instantly classified and the optimal pattern is auto-applied:
-
-| Task Type | Pattern Applied | Quality | Cost Savings | Parallel Agents |
-|-----------|---|---|---|---|
-| **Decision** | Ensemble voting (4 approaches) | +35% | 45% | 4 |
-| **Generation** | Haiku boosting + self-critique | +45% | 35% | 1-3 |
-| **Research** | Parallel investigation (6 angles) | +40% | 40% | 4-6 |
-| **Verification** | Multi-angle review | +20% | 30% | 3 |
-| **Decomposition** | Task parallelization | +35% | 45% | 4-6 |
-
-### How It Works
-
-```bash
-# Submit a task
-wyrm_orchestrate_task
-task: "Design a microservice architecture for real-time collaboration system"
-
-# Wyrm automatically:
-# 1. Classifies task type: decomposition (confident 78%)
-# 2. Applies patterns: task-decomposition, parallel-synthesis, haiku-boosting
-# 3. Spawns parallel agents (4-6 depending on complexity)
-# 4. Synthesizes results and stores in data lake
-# 5. Returns: Quality +35%, Cost savings 45% vs Opus
-```
-
-### Monthly Impact
-
-- **Cost:** 60% reduction (~$36/month on typical usage)
-- **Quality:** +25-40% improvement across all task types
-- **Speed:** 3-5x faster via parallel execution
-- **Transparency:** All results auto-stored with metrics
-
-**Enabled by default.** Threshold: 65% confidence. See [AUTO_ORCHESTRATION_GUIDE.md](docs/AUTO_ORCHESTRATION_GUIDE.md) for configuration and examples.
-
----
-
-## Installation
-
-### Option 1: NPM (Recommended)
-
-```bash
-npm install -g @wyrm/mcp-server
-```
-
-### Option 2: From Source
-
-```bash
-git clone https://github.com/Ghosts-Protocol-Pvt-Ltd/Wyrm.git
-cd Wyrm/packages/mcp-server
-npm install && npm run build
-npm link
-```
-
-### Option 3: Auto-Deploy to Projects
-
-```bash
-wyrm-deploy /path/to/your/projects
-```
+- 🧠 **Persistent Memory** — Projects, sessions, quests, context, and skills survive across sessions
+- 🔍 **Full-Text Search** — FTS5-powered instant search across all stored data
+- 📊 **Data Lake** — Store and query any structured data with namespaces and metadata
+- 🎯 **Quest Tracking** — Task management with priorities, tags, and cross-project visibility
+- 🔒 **Optional Encryption** — AES-256-GCM for sensitive data, keys never leave your machine
+- 🛡️ **Input Sanitization** — Built-in security against injection attacks
+- 📈 **Usage Analytics** — Token tracking, cost estimation, session metrics
+- 🔄 **Markdown Sync** — Bi-directional sync between database and `.wyrm/` project files
+- 🚀 **Zero Config** — Install, connect, done. No databases to set up, no services to run.
 
 ---
 
 ## Quick Start
 
-### 1. Auto-Configure (Recommended)
+### 1. Install
 
 ```bash
-wyrm-setup
+# From source (recommended for now)
+git clone https://github.com/ghosts-lk/Wyrm.git
+cd Wyrm/packages/mcp-server
+npm install && npm run build
+npm link
 ```
 
-This auto-detects all installed AI clients and configures Wyrm in each one. Supported clients:
+### 2. Connect to Your AI
 
-| Client | Config Location |
-|--------|----------------|
-| **VS Code (Copilot)** | `~/.config/Code/User/settings.json` |
-| **VS Code Insiders** | `~/.config/Code - Insiders/User/settings.json` |
-| **Claude Desktop** | `~/.config/claude/claude_desktop_config.json` |
-| **Cursor** | `~/.cursor/mcp.json` |
-| **Windsurf** | `~/.codeium/windsurf/mcp_config.json` |
-| **Zed** | `~/.config/zed/settings.json` |
-| **Continue** | `~/.continue/config.json` |
+Add Wyrm to your AI client's MCP configuration:
 
-```bash
-# Check what's configured
-wyrm-setup check
+<details>
+<summary><strong>Claude Desktop</strong></summary>
 
-# Configure specific clients only
-wyrm-setup only vscode-copilot,cursor
-
-# Remove Wyrm from all clients
-wyrm-setup remove
-
-# Re-configure after switching AIs
-wyrm-setup reconf
-```
-
-**Switching AIs?** Just install the new client and run `wyrm-setup` again. It detects the new client and adds the Wyrm config automatically. Your memory persists across all clients — same SQLite database, same context, no data loss.
-
-### 2. Manual Setup (VS Code Copilot)
-
-Add to your VS Code settings (`.vscode/settings.json`):
+Edit `~/.config/claude/claude_desktop_config.json` (Linux) or `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
 
 ```json
 {
-  "github.copilot.chat.experimental.mcpServers": {
+  "mcpServers": {
     "wyrm": {
       "command": "wyrm-mcp"
     }
@@ -227,90 +71,192 @@ Add to your VS Code settings (`.vscode/settings.json`):
 }
 ```
 
-### 3. Start the HTTP Server (Optional)
+</details>
 
-```bash
-wyrm  # Starts on http://localhost:3333
+<details>
+<summary><strong>GitHub Copilot (VS Code)</strong></summary>
+
+Add to `.vscode/settings.json` or your user settings:
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "wyrm": {
+        "command": "wyrm-mcp"
+      }
+    }
+  }
+}
 ```
 
-### 4. Scan Your Projects
+</details>
 
-In Copilot Chat:
+<details>
+<summary><strong>GitHub Copilot CLI</strong></summary>
+
+Add to `~/.copilot/mcp-config.json`:
+
+```json
+{
+  "mcpServers": {
+    "wyrm": {
+      "command": "wyrm-mcp"
+    }
+  }
+}
 ```
-@wyrm Scan /home/user/projects for git repositories
+
+</details>
+
+<details>
+<summary><strong>Cursor</strong></summary>
+
+Add to `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "wyrm": {
+      "command": "wyrm-mcp"
+    }
+  }
+}
 ```
 
-### Commands
+</details>
 
-| Command | Description |
-|---------|-------------|
-| `wyrm-setup` | Auto-detect AI clients and configure Wyrm in all of them |
-| `wyrm-setup check` | Show which AI clients are detected and configured |
-| `wyrm-mcp` | Start MCP server (stdio mode for AI tools) |
-| `wyrm` | Start HTTP API server on port 3333 |
-| `wyrm-deploy <path>` | Deploy Wyrm configuration to all projects in a folder |
+<details>
+<summary><strong>Windsurf</strong></summary>
+
+Add to `~/.codeium/windsurf/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "wyrm": {
+      "command": "wyrm-mcp"
+    }
+  }
+}
+```
+
+</details>
+
+Or run **`wyrm-setup`** to auto-detect and configure all installed AI clients at once.
+
+### 3. Use It
+
+Once connected, your AI has access to all Wyrm tools. Try:
+
+```
+"Scan ~/projects for git repositories"
+"Start a session for my auth refactor"
+"What quests are pending across all projects?"
+"Search my memory for anything about database migrations"
+```
 
 ---
 
-## MCP Tools
+## MCP Tools Reference
 
-### Project Management
+Wyrm exposes 31 tools via the Model Context Protocol:
+
+### Projects
 
 | Tool | Description |
 |------|-------------|
 | `wyrm_scan_projects` | Discover git projects in a directory tree |
 | `wyrm_list_projects` | List all registered projects with metadata |
 | `wyrm_project_context` | Get full context for a project (sessions, quests, data) |
-| `wyrm_global_context` | Overview of all projects — cross-project visibility |
+| `wyrm_global_context` | Overview across all projects |
 
-### Session Management
+### Sessions
 
 | Tool | Description |
 |------|-------------|
 | `wyrm_session_start` | Start or continue a named session with context |
-| `wyrm_session_update` | Update session with completed work and decisions |
+| `wyrm_session_update` | Update session with completed work, decisions, and notes |
 
-### Quest Management
+### Quests (Task Tracking)
 
 | Tool | Description |
 |------|-------------|
 | `wyrm_quest_add` | Add a task with priority, tags, and description |
-| `wyrm_quest_complete` | Mark task as done with completion notes |
+| `wyrm_quest_complete` | Mark a task as done with completion notes |
 | `wyrm_all_quests` | List pending tasks across all projects |
 
 ### Data Lake
 
 | Tool | Description |
 |------|-------------|
-| `wyrm_data_insert` | Store individual data points with namespace and metadata |
+| `wyrm_data_insert` | Store a data point with namespace and metadata |
 | `wyrm_data_batch_insert` | Bulk insert for large datasets |
 | `wyrm_data_query` | Query stored data by namespace, key, or content |
+| `wyrm_data_categories` | List all data categories for a project |
 
-### Auto-Orchestration & Reasoning
-
-| Tool | Description |
-|------|-------------|
-| `wyrm_orchestrate_task` | Classify a task and get auto-orchestration plan (pattern, confidence, quality estimate) |
-| `wyrm_orchestration_config` | View or update auto-orchestration settings (threshold, parallel agents, boosting mode) |
-| `wyrm_orchestration_stats` | View orchestration effectiveness and task distribution |
-
-### Search & Maintenance
+### Skills Registry
 
 | Tool | Description |
 |------|-------------|
-| `wyrm_search` | Full-text search across all projects, sessions, quests |
+| `wyrm_skill_register` | Register or update a skill with metadata |
+| `wyrm_skill_list` | List skills with filtering options |
+| `wyrm_skill_get` | Get detailed skill information |
+| `wyrm_skill_search` | Search skills by name, description, or tags |
+| `wyrm_skill_activate` / `wyrm_skill_deactivate` | Toggle skill status |
+| `wyrm_skill_delete` | Remove a skill |
+| `wyrm_skill_stats` | Skill registry statistics |
+
+### Search & Utilities
+
+| Tool | Description |
+|------|-------------|
+| `wyrm_search` | Full-text search across all projects, sessions, quests, and data |
+| `wyrm_set_global` | Set global context that applies across all projects |
 | `wyrm_sync` | Sync database with `.wyrm/` markdown files |
 | `wyrm_stats` | Database statistics and health |
+| `wyrm_usage` | Token usage stats, cache hit rates, and cost estimates |
 | `wyrm_maintenance` | Vacuum, archive old data, optimize indexes |
-| `wyrm_setup` | Auto-configure Wyrm in all detected AI clients (can be triggered by AI) |
+| `wyrm_setup` | Auto-configure Wyrm in all detected AI clients |
+
+### Auto-Orchestration
+
+| Tool | Description |
+|------|-------------|
+| `wyrm_orchestrate_task` | Classify a task and get an orchestration plan |
+| `wyrm_orchestration_config` | View or update orchestration settings |
+| `wyrm_orchestration_stats` | Orchestration effectiveness and task distribution |
 
 ---
 
-## Project Structure
+## Configuration
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `WYRM_DB_PATH` | `~/.wyrm/wyrm.db` | SQLite database location |
+| `WYRM_ENCRYPTION_KEY` | *(none)* | AES-256-GCM encryption key for sensitive data |
+| `WYRM_LOG_LEVEL` | `info` | Logging level (`debug`, `info`, `warn`, `error`) |
+| `WYRM_HTTP_PORT` | `3333` | HTTP API server port |
+
+### Encryption
+
+To enable encryption for sensitive context data:
+
+```bash
+# Generate a key
+openssl rand -hex 32
+
+# Set it before starting Wyrm
+export WYRM_ENCRYPTION_KEY="your-64-char-hex-key"
+```
+
+All encryption happens locally. Keys never leave your machine.
 
 ### Per-Project Files
 
-Each project tracked by Wyrm gets a `.wyrm/` directory:
+Each tracked project gets a `.wyrm/` directory:
 
 ```
 project/
@@ -321,25 +267,7 @@ project/
     └── protocol.md     # 🔥 AI guidelines — project-specific instructions
 ```
 
-### Repository Structure
-
-```
-Wyrm/
-├── packages/
-│   ├── mcp-server/            # MCP server (stdio mode for AI tools)
-│   └── vscode-extension/      # VS Code extension
-├── config/                    # Configuration templates
-├── templates/                 # Project template files
-├── examples/                  # Usage examples
-├── docs/                      # Documentation
-├── install.sh                 # Installation script
-├── wyrm-deploy.sh             # Multi-project deployment
-├── Dockerfile                 # Container build
-├── CHANGELOG.md
-├── ROADMAP.md
-├── SECURITY_AUDIT.md
-└── SECURITY_AUDIT_V2.md
-```
+These sync bi-directionally with the SQLite database via `wyrm_sync`.
 
 ---
 
@@ -348,124 +276,107 @@ Wyrm/
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                    AI Assistants                         │
-│        (Copilot, Claude, Cursor, Windsurf, Zed)          │
-└────────┬──────────────┬──────────────┬──────────────────┘
-         │              │              │
-         │  wyrm-setup auto-configures all clients
-         │              │              │
-         ▼              ▼              ▼
+│     (Copilot · Claude · Cursor · Windsurf · Zed)        │
+└────────────────────────┬────────────────────────────────┘
+                         │ MCP (stdio)
+                         ▼
 ┌─────────────────────────────────────────────────────────┐
 │                  Wyrm MCP Server                        │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐     │
-│  │   Logger    │  │   Crypto    │  │    Sync     │     │
-│  │  (Winston)  │  │ (AES-256)  │  │ (Markdown)  │     │
-│  └─────────────┘  └─────────────┘  └─────────────┘     │
-│  ┌─────────────┐  ┌─────────────────────────────────┐   │
-│  │ AutoConfig  │  │   SQLite Database (WAL mode)    │   │
-│  │ (AI Client  │  │  ┌─────────┐ ┌─────────┐       │   │
-│  │  Detection  │  │  │Projects │ │Sessions │       │   │
-│  │  & Setup)   │  │  └─────────┘ └─────────┘       │   │
-│  └─────────────┘  │  ┌─────────┐ ┌─────────┐       │   │
-│                   │  │ Quests  │ │DataLake │       │   │
-│                   │  └─────────┘ └─────────┘       │   │
-│                   │  ┌─────────┐ ┌─────────┐       │   │
-│                   │  │ Context │ │  FTS5   │       │   │
-│                   │  └─────────┘ └─────────┘       │   │
-│                   └─────────────────────────────────┘   │
-│                      │                                  │
-│               HTTP API (:3333)                          │
+│                                                         │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────┐  │
+│  │ Projects │  │ Sessions │  │  Quests  │  │ Skills │  │
+│  └──────────┘  └──────────┘  └──────────┘  └────────┘  │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────┐  │
+│  │ DataLake │  │  Search  │  │  Crypto  │  │  Sync  │  │
+│  │          │  │  (FTS5)  │  │(AES-256) │  │  (.md) │  │
+│  └──────────┘  └──────────┘  └──────────┘  └────────┘  │
+│                                                         │
+│              SQLite Database (WAL mode)                  │
+│              Optional HTTP API (:3333)                   │
 └─────────────────────────────────────────────────────────┘
 ```
 
----
-
-## HTTP API
-
-```
-GET  /api/health              Health check
-GET  /api/stats               Database statistics
-GET  /api/projects            List all projects
-POST /api/scan                Scan directory for git projects
-GET  /api/project/:path       Get full project context
-POST /api/session/start       Start or continue session
-POST /api/session/update      Update session with work
-POST /api/quest               Add quest
-POST /api/data                Insert data point
-GET  /api/search?q=...        Full-text search
-```
+**Stack:** TypeScript · Node.js · better-sqlite3 · FTS5 · MCP SDK
 
 ---
 
-## Docker
+## Development
 
 ```bash
-# Pull latest image
-docker pull ghcr.io/ghosts-protocol-pvt-ltd/wyrm:latest
+# Clone and install
+git clone https://github.com/ghosts-lk/Wyrm.git
+cd Wyrm/packages/mcp-server
+npm install
 
-# Run HTTP server
-docker run -p 3333:3333 -v wyrm-data:/data ghcr.io/ghosts-protocol-pvt-ltd/wyrm:latest
+# Build
+npm run build
 
-# Health check
-curl http://localhost:3333/health
+# Run tests
+npm test
+
+# Watch mode
+npm run dev
+```
+
+### Project Structure
+
+```
+Wyrm/
+├── packages/
+│   ├── mcp-server/          # Core MCP server
+│   │   ├── src/
+│   │   │   ├── index.ts     # MCP tool definitions & server
+│   │   │   ├── database.ts  # SQLite schema & queries
+│   │   │   ├── crypto.ts    # AES-256-GCM encryption
+│   │   │   ├── security.ts  # Input sanitization
+│   │   │   └── ...
+│   │   ├── tests/           # Jest test suite
+│   │   └── package.json
+│   └── vscode-extension/    # VS Code extension (optional)
+├── config/                  # Configuration templates
+├── templates/               # Project template files
+├── docs/                    # Documentation
+├── examples/                # Usage examples
+└── scripts/                 # Utility scripts
 ```
 
 ---
 
-## CI/CD
+## Contributing
 
-Wyrm uses GitHub Actions for comprehensive automation:
+Contributions are welcome! Here's how:
 
-| Workflow | Description |
-|----------|-------------|
-| **CI** | Automated builds and tests on Node.js 18, 20, 22 |
-| **Security** | Weekly CodeQL analysis and dependency audits |
-| **Performance** | Automated benchmarks and load tests |
-| **Integration** | Cross-platform tests (Ubuntu, macOS, Windows) |
-| **Docker** | Automated image builds pushed to GitHub Container Registry |
-| **Docs** | Auto-deployed to GitHub Pages |
+1. **Fork** the repository
+2. **Create** a feature branch (`git checkout -b feat/amazing-feature`)
+3. **Commit** your changes (`git commit -m 'feat: add amazing feature'`)
+4. **Push** to the branch (`git push origin feat/amazing-feature`)
+5. **Open** a Pull Request
 
-See [GITHUB_ACTIONS.md](GITHUB_ACTIONS.md) for complete workflow documentation.
+Please ensure tests pass (`npm test`) and the project builds (`npm run build`) before submitting.
 
 ---
 
 ## Security
 
-| Feature | Detail |
-|---------|--------|
-| **Local-Only** | All data stored locally — nothing leaves your machine by default |
-| **AES-256-GCM** | Optional encryption for sensitive context data |
-| **No Telemetry** | Zero data collection, zero phone-home |
-| **Audited** | Two security audits completed ([v1](SECURITY_AUDIT.md), [v2](SECURITY_AUDIT_V2.md)) |
-| **Sandboxed** | No network access required for MCP server operation |
+- **Local-only** — All data stored on your machine. Nothing leaves by default.
+- **No telemetry** — Zero data collection, zero phone-home.
+- **Optional encryption** — AES-256-GCM for sensitive context data.
+- **Audited** — Security audits documented in [SECURITY_AUDIT.md](SECURITY_AUDIT.md) and [SECURITY_AUDIT_V2.md](SECURITY_AUDIT_V2.md).
 
----
-
-## Ghost Protocol Ecosystem
-
-Wyrm is part of the Ghost Protocol product suite:
-
-| Product | Description | Status |
-|---------|-------------|--------|
-| **Wyrm** | Persistent AI memory system (this project) | v3.0.0 — Production |
-| **PhantomDragon AI** | AI-powered penetration testing framework | v2.2.0 — Production |
-| **[PhantomDragon](https://github.com/ghosts-lk/PhantomDragon)** | Core web application pentesting framework | v9.0.0 — Production |
-| **[Ghost Protocol](https://ghosts.lk)** | Enterprise web portfolio & knowledge base | Production |
-| **[DragonScale](https://ghosts.lk/dragonscale)** | Security audit & compliance platform | Development |
+Found a vulnerability? Please open an issue or email security@ghosts.lk.
 
 ---
 
 ## License
 
-**Proprietary** — Copyright © 2026 Ghost Protocol (Pvt) Ltd. All Rights Reserved.
-
-See [LICENSE](LICENSE) for full terms. For licensing inquiries: legal@ghosts.lk
+[MIT](LICENSE) — Copyright © 2024-2026 [Ghost Protocol (Pvt) Ltd](https://ghosts.lk)
 
 ---
 
 <div align="center">
 
-*The dragon remembers. 🐉*
+*The dragon remembers.* 🐉
 
-*Built by [Ghost Protocol](https://ghosts.lk)*
+Built by [Ghost Protocol](https://ghosts.lk)
 
 </div>

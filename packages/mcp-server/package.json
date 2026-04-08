@@ -24,27 +24,28 @@
     "prepublish": "npm run build"
   },
   "keywords": [
+    "mcp",
     "ai",
     "memory",
-    "mcp",
-    "model-context-protocol",
+    "persistent",
     "sqlite",
-    "copilot",
+    "agent",
     "claude",
+    "copilot",
+    "model-context-protocol",
     "gpt",
     "context",
-    "persistent"
+    "full-text-search"
   ],
   "author": "Ghost Protocol (Pvt) Ltd <legal@ghosts.lk>",
-  "license": "SEE LICENSE IN LICENSE",
-  "private": true,
-  "homepage": "https://ghosts.lk/wyrm",
+  "license": "MIT",
+  "homepage": "https://github.com/ghosts-lk/Wyrm",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Ghosts-Protocol-Pvt-Ltd/Wyrm.git"
+    "url": "git+https://github.com/ghosts-lk/Wyrm.git"
   },
   "bugs": {
-    "url": "https://github.com/Ghosts-Protocol-Pvt-Ltd/Wyrm/issues"
+    "url": "https://github.com/ghosts-lk/Wyrm/issues"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
