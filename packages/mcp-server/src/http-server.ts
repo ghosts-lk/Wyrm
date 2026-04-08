@@ -12,6 +12,7 @@ import { WyrmDB } from './database.js';
 import { createContextBundle } from './summarizer.js';
 import { authMiddleware, getSecurityHeaders, getAuthStatus } from './http-auth.js';
 import { getLogger } from './logger.js';
+import { sanitizeFtsQuery } from './security.js';
 
 const PORT = parseInt(process.env.WYRM_PORT || '3333');
 const MAX_BODY_SIZE = 1024 * 1024; // 1MB limit
@@ -287,11 +288,12 @@ const routes: Record<string, (body: RequestBody) => unknown> = {
     const query = body.query as string;
     if (!query) return { error: 'Query required' };
     
+    const sanitized = sanitizeFtsQuery(query);
     return {
-      sessions: db.searchSessions(query),
-      quests: db.searchQuests(query),
-      data: db.searchData(query),
-      projects: db.searchProjects(query)
+      sessions: db.searchSessions(sanitized),
+      quests: db.searchQuests(sanitized),
+      data: db.searchData(sanitized),
+      projects: db.searchProjects(sanitized)
     };
   },
   

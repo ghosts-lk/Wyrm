@@ -13,6 +13,7 @@ import { WyrmDB } from './database.js';
 import { cache, estimateTokens, truncateToTokens, timed } from './performance.js';
 import { authMiddleware, getAuthStatus, getSecurityHeaders } from './http-auth.js';
 import { WyrmLogger } from './logger.js';
+import { sanitizeFtsQuery } from './security.js';
 
 const PORT = parseInt(process.env.WYRM_PORT || '3333');
 const MAX_BODY_SIZE = 512 * 1024; // 512KB - smaller for fast API
@@ -241,10 +242,11 @@ const routes: Record<string, Handler> = {
     const q = args.q as string;
     if (!q) return { e: 'query required' };
 
+    const sanitized = sanitizeFtsQuery(q);
     const results = {
-      q: db.searchQuests(q).slice(0, 5).map(x => ({ i: x.id, t: x.title })),
-      s: db.searchSessions(q).slice(0, 3).map(x => ({ i: x.id, d: x.date })),
-      p: db.searchProjects(q).slice(0, 3).map(x => ({ n: x.name, p: x.path }))
+      q: db.searchQuests(sanitized).slice(0, 5).map(x => ({ i: x.id, t: x.title })),
+      s: db.searchSessions(sanitized).slice(0, 3).map(x => ({ i: x.id, d: x.date })),
+      p: db.searchProjects(sanitized).slice(0, 3).map(x => ({ n: x.name, p: x.path }))
     };
 
     return results;

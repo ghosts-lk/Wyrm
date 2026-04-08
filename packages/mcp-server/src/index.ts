@@ -29,9 +29,33 @@ import { detectClients, autoConfigureAll, removeFromAll, getStatusSummary, findW
 import { cache, compactProject, compactQuest, compactSession, estimateTokens, guardSize } from "./performance.js";
 import { createHash } from "crypto";
 import { getGlobalOrchestrator, initializeOrchestrator, classifyTask, getDefaultConfig, type OrchestrationConfig, type TaskType } from "./auto-orchestrator.js";
+import { sanitizeFtsQuery, sanitizeString, validateBatchSize, SecurityError } from "./security.js";
+import { getCrypto, initializeCrypto } from "./crypto.js";
+import { createVectorStore, type VectorStore } from "./vectors.js";
 
 const db = new WyrmDB();
 const sync = new WyrmSync(db);
+
+// ==================== OPTIONAL ENCRYPTION ====================
+if (process.env.WYRM_ENCRYPTION_KEY) {
+  try {
+    initializeCrypto(process.env.WYRM_ENCRYPTION_KEY);
+  } catch (e) {
+    console.error('Wyrm: Failed to initialize encryption:', e);
+  }
+}
+const wyrmCrypto = getCrypto();
+
+// ==================== OPTIONAL VECTOR SEARCH ====================
+let vectorStore: VectorStore | null = null;
+try {
+  const provider = (process.env.WYRM_VECTOR_PROVIDER || 'none') as 'local' | 'openai' | 'ollama' | 'none';
+  if (provider !== 'none') {
+    vectorStore = createVectorStore({ provider });
+  }
+} catch (e) {
+  console.error('Wyrm: Failed to initialize vector store:', e);
+}
 
 // ==================== AUTO-ORCHESTRATION ====================
 const orchestrator = initializeOrchestrator({
@@ -875,12 +899,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           return { content: [{ type: "text", text: "Project not found" }] };
         }
         
-        const dataPoint = db.insertData(project.id, category, key, value, metadata);
+        const sanitizedCategory = sanitizeString(category, 200);
+        const sanitizedKey = sanitizeString(key, 500);
+        const encryptedValue = wyrmCrypto.maybeEncrypt(sanitizeString(value));
+        
+        const dataPoint = db.insertData(project.id, sanitizedCategory, sanitizedKey, encryptedValue, metadata);
+        
+        // Index in vector store if available
+        if (vectorStore) {
+          vectorStore.addVector(`${category} ${key} ${value}`, 'note', dataPoint.id, project.id).catch(() => {});
+        }
         
         return {
           content: [{
             type: "text",
-            text: `🐉 Data inserted: ${category}/${key} (ID: ${dataPoint.id})`
+            text: `🐉 Data inserted: ${category}/${key} (ID: ${dataPoint.id})${wyrmCrypto.isEnabled() ? ' 🔒' : ''}`
           }]
         };
       }
@@ -891,18 +924,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           data: Array<{ category: string; key: string; value: string; metadata?: Record<string, unknown> }>;
         };
         
+        validateBatchSize(data);
+        
         const project = db.getProject(projectPath);
         if (!project) {
           return { content: [{ type: "text", text: "Project not found" }] };
         }
         
-        const items = data.map(d => ({ ...d, projectId: project.id }));
+        const items = data.map(d => ({
+          ...d,
+          projectId: project.id,
+          value: wyrmCrypto.maybeEncrypt(sanitizeString(d.value)),
+        }));
         const count = db.insertDataBatch(items);
         
         return {
           content: [{
             type: "text",
-            text: `🐉 Batch inserted ${count} data points`
+            text: `🐉 Batch inserted ${count} data points${wyrmCrypto.isEnabled() ? ' 🔒' : ''}`
           }]
         };
       }
@@ -923,14 +962,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         
         let results;
         if (search) {
-          results = db.searchData(search, project.id);
+          const sanitizedSearch = sanitizeFtsQuery(search);
+          results = db.searchData(sanitizedSearch, project.id);
         } else {
           results = db.queryData(project.id, category, limit || 100, offset || 0);
         }
         
-        const text = results.slice(0, 50).map(d => 
-          `- **${d.category}/${d.key}:** ${d.value.slice(0, 100)}${d.value.length > 100 ? '...' : ''}`
-        ).join('\n');
+        const text = results.slice(0, 50).map(d => {
+          const val = wyrmCrypto.maybeDecrypt(d.value);
+          return `- **${d.category}/${d.key}:** ${val.slice(0, 100)}${val.length > 100 ? '...' : ''}`;
+        }).join('\n');
         
         const response = cachedResponse(`🐉 **${results.length} Results**\n\n${text}`);
         if (cacheKey) cache.set(cacheKey, response, 30000);
@@ -1123,7 +1164,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "wyrm_skill_search": {
         const { query, limit } = args as { query: string; limit?: number };
-        const skills = db.searchSkills(query, limit || 20);
+        const sanitizedQuery = sanitizeFtsQuery(query);
+        const skills = db.searchSkills(sanitizedQuery, limit || 20);
         
         if (skills.length === 0) {
           return {
@@ -1173,6 +1215,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           projectPath?: string;
         };
         
+        const sanitizedQuery = sanitizeFtsQuery(query);
         const project = projectPath ? db.getProject(projectPath) : undefined;
         const projectId = project?.id;
         const searchType = type || 'all';
@@ -1180,7 +1223,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         let text = `🐉 **Search Results for "${query}"**\n\n`;
         
         if (searchType === 'all' || searchType === 'sessions') {
-          const sessions = db.searchSessions(query, projectId);
+          const sessions = db.searchSessions(sanitizedQuery, projectId);
           if (sessions.length > 0) {
             text += `## Sessions (${sessions.length})\n`;
             for (const s of sessions.slice(0, 10)) {
@@ -1191,7 +1234,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
         
         if (searchType === 'all' || searchType === 'quests') {
-          const quests = db.searchQuests(query);
+          const quests = db.searchQuests(sanitizedQuery);
           if (quests.length > 0) {
             text += `## Quests (${quests.length})\n`;
             for (const q of quests.slice(0, 10)) {
@@ -1202,18 +1245,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
         
         if (searchType === 'all' || searchType === 'data') {
-          const data = db.searchData(query, projectId);
+          const data = db.searchData(sanitizedQuery, projectId);
           if (data.length > 0) {
             text += `## Data (${data.length})\n`;
             for (const d of data.slice(0, 10)) {
-              text += `- ${d.category}/${d.key}\n`;
+              const val = wyrmCrypto.maybeDecrypt(d.value);
+              text += `- ${d.category}/${d.key}: ${val.slice(0, 60)}${val.length > 60 ? '...' : ''}\n`;
             }
             text += '\n';
           }
         }
         
         if (searchType === 'all' || searchType === 'skills') {
-          const skills = db.searchSkills(query, 10);
+          const skills = db.searchSkills(sanitizedQuery, 10);
           if (skills.length > 0) {
             text += `## Skills (${skills.length})\n`;
             for (const s of skills) {
@@ -1223,8 +1267,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }
         }
         
+        // Optional vector search enhancement
+        if (vectorStore && (searchType === 'all' || searchType === 'data')) {
+          try {
+            const vectorResults = await vectorStore.search(query, 5, projectId);
+            if (vectorResults.length > 0) {
+              text += `\n## Semantic Matches (${vectorResults.length})\n`;
+              for (const v of vectorResults) {
+                text += `- ${v.content_type} #${v.content_id} (similarity: ${(v.similarity * 100).toFixed(1)}%)\n`;
+              }
+            }
+          } catch {
+            // Vector search failed gracefully — FTS results still returned
+          }
+        }
+        
         const response = cachedResponse(text);
-        if (cacheKey) cache.set(cacheKey, response, 20000); // 20s — search results change
+        if (cacheKey) cache.set(cacheKey, response, 20000);
         return response;
       }
 
