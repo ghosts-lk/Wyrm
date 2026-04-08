@@ -342,6 +342,42 @@ export class WyrmDB {
         INSERT INTO skills_fts(skills_fts, rowid, name, description, tags)
         VALUES('delete', old.id, old.name, old.description, old.tags);
       END;
+
+      -- UPDATE triggers to keep FTS in sync on updates
+      CREATE TRIGGER IF NOT EXISTS sessions_au AFTER UPDATE ON sessions BEGIN
+        INSERT INTO sessions_fts(sessions_fts, rowid, objectives, completed, issues, notes, summary)
+        VALUES('delete', old.id, old.objectives, old.completed, old.issues, old.notes, old.summary);
+        INSERT INTO sessions_fts(rowid, objectives, completed, issues, notes, summary)
+        VALUES (new.id, new.objectives, new.completed, new.issues, new.notes, new.summary);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS quests_au AFTER UPDATE ON quests BEGIN
+        INSERT INTO quests_fts(quests_fts, rowid, title, description)
+        VALUES('delete', old.id, old.title, old.description);
+        INSERT INTO quests_fts(rowid, title, description) VALUES (new.id, new.title, new.description);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS skills_au AFTER UPDATE ON skills BEGIN
+        INSERT INTO skills_fts(skills_fts, rowid, name, description, tags)
+        VALUES('delete', old.id, old.name, old.description, old.tags);
+        INSERT INTO skills_fts(rowid, name, description, tags) VALUES (new.id, new.name, new.description, new.tags);
+      END;
+
+      -- data_lake FTS triggers (were missing entirely)
+      CREATE TRIGGER IF NOT EXISTS data_lake_ai AFTER INSERT ON data_lake BEGIN
+        INSERT INTO data_lake_fts(rowid, key, value) VALUES (new.id, new.key, new.value);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS data_lake_ad AFTER DELETE ON data_lake BEGIN
+        INSERT INTO data_lake_fts(data_lake_fts, rowid, key, value)
+        VALUES('delete', old.id, old.key, old.value);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS data_lake_au AFTER UPDATE ON data_lake BEGIN
+        INSERT INTO data_lake_fts(data_lake_fts, rowid, key, value)
+        VALUES('delete', old.id, old.key, old.value);
+        INSERT INTO data_lake_fts(rowid, key, value) VALUES (new.id, new.key, new.value);
+      END;
     `);
   }
   
@@ -871,7 +907,7 @@ export class WyrmDB {
     }
     
     if (search) {
-      query += ' AND id IN (SELECT id FROM skills_fts WHERE skills_fts MATCH ?)';
+      query += ' AND id IN (SELECT rowid FROM skills_fts WHERE skills_fts MATCH ?)';
       params.push(search);
     }
     
@@ -883,8 +919,8 @@ export class WyrmDB {
   searchSkills(query: string, limit = 20): Skill[] {
     return this.db.prepare(`
       SELECT s.* FROM skills s
-      JOIN skills_fts ON s.id = skills_fts.id
-      WHERE skills_fts MATCH ?
+      JOIN skills_fts fts ON s.id = fts.rowid
+      WHERE fts MATCH ?
       ORDER BY rank
       LIMIT ?
     `).all(query, limit) as Skill[];
