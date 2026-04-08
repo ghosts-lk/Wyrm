@@ -10,6 +10,7 @@
 import { resolve, relative, normalize, sep } from 'path';
 import { existsSync, statSync } from 'fs';
 import { homedir } from 'os';
+import { createHash } from 'crypto';
 
 // ==================== PATH SECURITY ====================
 
@@ -192,7 +193,6 @@ export function validateApiKey(authHeader: string | undefined, expectedHash: str
  * Hash a token for storage/comparison
  */
 export function hashToken(token: string): string {
-  const { createHash } = require('crypto');
   return createHash('sha256').update(token).digest('hex');
 }
 
