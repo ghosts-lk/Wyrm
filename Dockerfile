@@ -5,14 +5,17 @@ FROM node:20-alpine AS builder
 
 WORKDIR /build
 
-# Copy package files
+# Copy package files and install ALL deps (need devDeps for TypeScript build)
 COPY packages/mcp-server/package*.json ./
-RUN npm ci --only=production
+RUN npm ci
 
 # Copy source and build
 COPY packages/mcp-server/tsconfig.json ./
 COPY packages/mcp-server/src ./src
 RUN npm run build
+
+# Prune dev dependencies for production image
+RUN npm prune --production
 
 # Production image
 FROM node:20-alpine

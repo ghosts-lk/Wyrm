@@ -34,18 +34,16 @@ jobs:
         run: npm run build
       
       - name: Create benchmark script
+        working-directory: ./packages/mcp-server
         run: |
-          cat > benchmark.js << 'EOF'
+          cat > benchmark.js << 'BENCHEOF'
           const { performance } = require('perf_hooks');
           const Database = require('better-sqlite3');
-          const fs = require('fs');
-          
+
           console.log('🐉 Wyrm Performance Benchmark\n');
-          
-          // Create test database
+
           const db = new Database(':memory:');
-          
-          // Session creation benchmark
+
           db.exec(`
             CREATE TABLE sessions (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,9 +52,9 @@ jobs:
             );
             CREATE INDEX idx_timestamp ON sessions(timestamp);
           `);
-          
+
           const insertStmt = db.prepare('INSERT INTO sessions (data, timestamp) VALUES (?, ?)');
-          
+
           console.log('📊 Session Insert Performance:');
           const start1 = performance.now();
           const insert = db.transaction(() => {
@@ -68,10 +66,9 @@ jobs:
           const end1 = performance.now();
           console.log(`  1,000 inserts: ${(end1 - start1).toFixed(2)}ms`);
           console.log(`  Avg per insert: ${((end1 - start1) / 1000).toFixed(4)}ms\n`);
-          
-          // Query performance
+
           const selectStmt = db.prepare('SELECT * FROM sessions WHERE timestamp > ?');
-          
+
           console.log('📊 Query Performance:');
           const start2 = performance.now();
           for (let i = 0; i < 100; i++) {
@@ -80,28 +77,24 @@ jobs:
           const end2 = performance.now();
           console.log(`  100 queries: ${(end2 - start2).toFixed(2)}ms`);
           console.log(`  Avg per query: ${((end2 - start2) / 100).toFixed(4)}ms\n`);
-          
-          // Full-text search setup
-          db.exec(`
-            CREATE VIRTUAL TABLE sessions_fts USING fts5(content);
-          `);
-          
+
+          db.exec(`CREATE VIRTUAL TABLE sessions_fts USING fts5(content);`);
+
           const ftsInsert = db.prepare('INSERT INTO sessions_fts (content) VALUES (?)');
           const ftsInsertBatch = db.transaction(() => {
             for (let i = 0; i < 1000; i++) {
               ftsInsert.run(`This is test content number ${i} with various keywords like database, performance, and testing`);
             }
           });
-          
+
           console.log('📊 FTS5 Insert Performance:');
           const start3 = performance.now();
           ftsInsertBatch();
           const end3 = performance.now();
           console.log(`  1,000 FTS inserts: ${(end3 - start3).toFixed(2)}ms\n`);
-          
-          // FTS search
+
           const ftsSearch = db.prepare('SELECT * FROM sessions_fts WHERE content MATCH ?');
-          
+
           console.log('📊 FTS5 Search Performance:');
           const start4 = performance.now();
           for (let i = 0; i < 100; i++) {
@@ -110,14 +103,14 @@ jobs:
           const end4 = performance.now();
           console.log(`  100 FTS searches: ${(end4 - start4).toFixed(2)}ms`);
           console.log(`  Avg per search: ${((end4 - start4) / 100).toFixed(4)}ms\n`);
-          
+
           db.close();
           console.log('✅ Benchmark complete');
-          EOF
+          BENCHEOF
       
       - name: Run benchmark
         working-directory: ./packages/mcp-server
-        run: node ../../benchmark.js
+        run: node benchmark.js
       
       - name: Performance summary
         run: |
@@ -147,15 +140,16 @@ jobs:
         run: npm run build
       
       - name: Create load test
+        working-directory: ./packages/mcp-server
         run: |
-          cat > load-test.js << 'EOF'
+          cat > load-test.js << 'LOADEOF'
           const { performance } = require('perf_hooks');
           const Database = require('better-sqlite3');
-          
+
           console.log('🐉 Wyrm Load Test\n');
-          
+
           const db = new Database(':memory:');
-          
+
           db.exec(`
             CREATE TABLE large_dataset (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -166,17 +160,17 @@ jobs:
             CREATE INDEX idx_large_timestamp ON large_dataset(timestamp);
             CREATE VIRTUAL TABLE large_fts USING fts5(data, metadata);
           `);
-          
+
           console.log('📊 Loading 10,000 records...');
           const start = performance.now();
-          
+
           const insert = db.prepare('INSERT INTO large_dataset (data, metadata, timestamp) VALUES (?, ?, ?)');
           const ftsInsert = db.prepare('INSERT INTO large_fts (data, metadata) VALUES (?, ?)');
-          
+
           const bulkInsert = db.transaction(() => {
             for (let i = 0; i < 10000; i++) {
-              const data = JSON.stringify({ 
-                session: `session-${i}`, 
+              const data = JSON.stringify({
+                session: `session-${i}`,
                 quest: `quest-${i % 100}`,
                 content: `This is test data for record ${i} with various metadata`
               });
@@ -185,33 +179,31 @@ jobs:
               ftsInsert.run(data, metadata);
             }
           });
-          
+
           bulkInsert();
           const end = performance.now();
-          
+
           console.log(`✅ Loaded 10,000 records in ${(end - start).toFixed(2)}ms`);
           console.log(`  Avg per record: ${((end - start) / 10000).toFixed(4)}ms`);
-          
-          // Query performance on large dataset
+
           console.log('\n📊 Query performance on large dataset...');
           const query = db.prepare('SELECT * FROM large_dataset ORDER BY timestamp DESC LIMIT 100');
           const qStart = performance.now();
           const results = query.all();
           const qEnd = performance.now();
           console.log(`  Retrieved 100 records in ${(qEnd - qStart).toFixed(4)}ms`);
-          
-          // FTS performance on large dataset
+
           console.log('\n📊 FTS performance on large dataset...');
           const ftsQuery = db.prepare('SELECT * FROM large_fts WHERE large_fts MATCH ? LIMIT 100');
           const fStart = performance.now();
           const ftsResults = ftsQuery.all('session AND quest');
           const fEnd = performance.now();
           console.log(`  FTS search in ${(fEnd - fStart).toFixed(4)}ms`);
-          
+
           db.close();
           console.log('\n✅ Load test complete');
-          EOF
+          LOADEOF
       
       - name: Run load test
         working-directory: ./packages/mcp-server
-        run: node ../../load-test.js
+        run: node load-test.js

@@ -133,6 +133,8 @@ jobs:
   docker:
     name: Build Docker Image
     runs-on: ubuntu-latest
+    # Docker is optional — don't block release if it fails
+    continue-on-error: true
     
     steps:
       - name: Checkout repository
@@ -165,7 +167,7 @@ jobs:
 
   notify:
     name: Notify Release
-    needs: [create-release, docker]
+    needs: [create-release]
     runs-on: ubuntu-latest
     if: success()
     
