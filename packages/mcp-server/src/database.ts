@@ -136,6 +136,16 @@ export class WyrmDB {
     this.recoverIncompleteOperations();
   }
   
+  /** Expose the raw database instance for analytics and other modules */
+  getDatabase(): Database.Database {
+    return this.db;
+  }
+  
+  /** Get the database file path */
+  getDatabasePath(): string {
+    return this.dbPath;
+  }
+  
   /**
    * Initialize database with retry logic for handling corruption/locks
    */

@@ -32,6 +32,9 @@ import { getGlobalOrchestrator, initializeOrchestrator, classifyTask, getDefault
 import { sanitizeFtsQuery, sanitizeString, validateBatchSize, SecurityError } from "./security.js";
 import { getCrypto, initializeCrypto } from "./crypto.js";
 import { createVectorStore, type VectorStore } from "./vectors.js";
+import { initializeLicense, getLicenseInfo, hasFeature, getTier, activateLicense, type LicenseValidation } from "./license.js";
+import { WyrmAnalytics, type UsageEvent as AnalyticsUsageEvent } from "./analytics.js";
+import { WyrmCloudBackup } from "./cloud-backup.js";
 
 const db = new WyrmDB();
 const sync = new WyrmSync(db);
@@ -66,6 +69,27 @@ const orchestrator = initializeOrchestrator({
   trackMetrics: true,
 });
 
+// ==================== LICENSE SYSTEM ====================
+initializeLicense();
+const licenseInfo = getLicenseInfo();
+if (licenseInfo.tier !== 'free') {
+  console.error(`Wyrm: Licensed — ${licenseInfo.tier} tier (expires: ${licenseInfo.expiresAt || 'never'})`);
+}
+
+// ==================== PERSISTENT ANALYTICS ====================
+const analytics = new WyrmAnalytics(db.getDatabase());
+
+// ==================== CLOUD BACKUP (Pro+) ====================
+const cloudBackup = new WyrmCloudBackup();
+if (process.env.WYRM_R2_ENDPOINT && process.env.WYRM_R2_ACCESS_KEY && process.env.WYRM_R2_SECRET_KEY) {
+  cloudBackup.configure({
+    endpoint: process.env.WYRM_R2_ENDPOINT,
+    bucket: process.env.WYRM_R2_BUCKET || 'wyrm-backups',
+    accessKeyId: process.env.WYRM_R2_ACCESS_KEY,
+    secretAccessKey: process.env.WYRM_R2_SECRET_KEY,
+  }, process.env.WYRM_ENCRYPTION_KEY);
+}
+
 // ==================== USAGE TRACKING ====================
 interface UsageEntry {
   tool: string;
@@ -84,6 +108,16 @@ function trackUsage(entry: UsageEntry): void {
   if (usageLog.length > USAGE_MAX_ENTRIES) {
     usageLog.splice(0, usageLog.length - USAGE_MAX_ENTRIES);
   }
+  // Persist to analytics (Pro+ feature, but record for all — dashboard gated)
+  analytics.record({
+    tool: entry.tool,
+    tokens_in: entry.tokens_in,
+    tokens_out: entry.tokens_out,
+    cached: entry.cached,
+    ms: entry.ms,
+    success: true,
+    timestamp: entry.timestamp,
+  });
 }
 
 function getUsageStats(last?: number): {
@@ -175,6 +209,9 @@ const READ_ONLY_TOOLS = new Set([
   "wyrm_skill_stats",
   "wyrm_orchestration_config",
   "wyrm_orchestration_stats",
+  "wyrm_license",
+  "wyrm_analytics_dashboard",
+  "wyrm_cost_report",
 ]);
 
 /** Tools that mutate data — invalidate relevant caches */
@@ -193,12 +230,15 @@ const WRITE_TOOLS = new Set([
   "wyrm_skill_delete",
   "wyrm_skill_activate",
   "wyrm_skill_deactivate",
+  "wyrm_activate",
+  "wyrm_cloud_backup",
+  "wyrm_encrypt_setup",
 ]);
 
 const server = new Server(
   {
     name: "wyrm",
-    version: "3.1.0",
+    version: "3.2.0",
   },
   {
     capabilities: {
@@ -599,6 +639,71 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: "object",
         properties: {},
+      },
+    },
+    // ==================== LICENSE & PRO FEATURES ====================
+    {
+      name: "wyrm_license",
+      description: "View current license status, tier, and available features",
+      inputSchema: {
+        type: "object",
+        properties: {},
+      },
+    },
+    {
+      name: "wyrm_activate",
+      description: "Activate a license key to unlock Pro/Team/Enterprise features",
+      inputSchema: {
+        type: "object",
+        properties: {
+          license: { type: "string", description: "License JSON string (signed license from Ghost Protocol)" },
+        },
+        required: ["license"],
+      },
+    },
+    {
+      name: "wyrm_analytics_dashboard",
+      description: "View usage analytics dashboard — tool calls, tokens, costs, cache efficiency (Pro+)",
+      inputSchema: {
+        type: "object",
+        properties: {
+          days: { type: "number", description: "Number of days to analyze (default: 30)" },
+        },
+      },
+    },
+    {
+      name: "wyrm_cost_report",
+      description: "View estimated API cost report for current billing period (Pro+)",
+      inputSchema: {
+        type: "object",
+        properties: {
+          period: { type: "string", description: "Period in YYYY-MM format (default: current month)" },
+        },
+      },
+    },
+    {
+      name: "wyrm_cloud_backup",
+      description: "Backup Wyrm database to encrypted cloud storage (Pro+)",
+      inputSchema: {
+        type: "object",
+        properties: {
+          action: { type: "string", description: "Action: backup, restore, list, prune", enum: ["backup", "restore", "list", "prune"] },
+          backupKey: { type: "string", description: "Backup key for restore (from list)" },
+          keepCount: { type: "number", description: "Number of backups to keep when pruning (default: 10)" },
+        },
+        required: ["action"],
+      },
+    },
+    {
+      name: "wyrm_encrypt_setup",
+      description: "Set up or check encryption status for sensitive data (Pro+)",
+      inputSchema: {
+        type: "object",
+        properties: {
+          action: { type: "string", description: "Action: status, enable, test", enum: ["status", "enable", "test"] },
+          password: { type: "string", description: "Encryption password (min 8 chars, required for enable)" },
+        },
+        required: ["action"],
       },
     },
   ],
@@ -1569,6 +1674,225 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return cachedResponse(text);
       }
 
+      // ==================== LICENSE & PRO FEATURE TOOLS ====================
+
+      case "wyrm_license": {
+        const license = getLicenseInfo();
+        const tier = getTier();
+        
+        let text = `🐉 **Wyrm License Status**\n\n`;
+        text += `- **Tier:** ${tier.charAt(0).toUpperCase() + tier.slice(1)}\n`;
+        
+        if (license.valid && license.key) {
+          text += `- **Key:** ${license.key}\n`;
+          text += `- **Issued To:** ${license.issuedTo || 'Unknown'}\n`;
+          text += `- **Expires:** ${license.expiresAt ? new Date(license.expiresAt).toLocaleDateString() : 'Never'}\n`;
+          text += `- **Status:** ✓ Valid\n\n`;
+          text += `### Features\n`;
+          for (const f of license.features) {
+            text += `- ✓ ${f}\n`;
+          }
+        } else {
+          text += `- **Status:** Free tier (no license key)\n\n`;
+          text += `### Free Features\n`;
+          text += `- ✓ Local SQLite storage\n`;
+          text += `- ✓ 32 MCP tools\n`;
+          text += `- ✓ FTS5 search\n`;
+          text += `- ✓ File-based sync\n\n`;
+          text += `### Upgrade to Pro\n`;
+          text += `- Analytics dashboard & cost tracking\n`;
+          text += `- Cloud backup to R2\n`;
+          text += `- Encryption at rest\n`;
+          text += `- Priority support\n`;
+          text += `\nVisit https://ghosts.lk/wyrm to get a license key.`;
+        }
+        
+        return cachedResponse(text);
+      }
+
+      case "wyrm_activate": {
+        const licenseStr = args?.license as string;
+        if (!licenseStr) throw new Error("License JSON string required");
+        
+        try {
+          const result = activateLicense(licenseStr);
+          if (result.valid) {
+            return {
+              content: [{ type: "text", text: `🐉 ✓ License activated!\n\n- **Tier:** ${result.tier}\n- **Features:** ${result.features.join(', ')}\n\nRestart Wyrm to apply all features.` }],
+            };
+          } else {
+            return {
+              content: [{ type: "text", text: `🐉 ✗ License activation failed: ${result.error || 'unknown error'}` }],
+              isError: true,
+            };
+          }
+        } catch (e: any) {
+          return {
+            content: [{ type: "text", text: `🐉 ✗ Invalid license format: ${e.message}` }],
+            isError: true,
+          };
+        }
+      }
+
+      case "wyrm_analytics_dashboard": {
+        if (!hasFeature('analytics')) {
+          return {
+            content: [{ type: "text", text: `🐉 Analytics requires a Pro license or higher.\nVisit https://ghosts.lk/wyrm to upgrade.` }],
+          };
+        }
+        
+        const days = (args?.days as number) || 30;
+        const dashboard = analytics.dashboard(days);
+        
+        let text = `🐉 **Usage Analytics** (last ${days} days)\n\n`;
+        text += `### Overview\n`;
+        text += `- **Total Tool Calls:** ${dashboard.summary.total_calls.toLocaleString()}\n`;
+        text += `- **Unique Tools Used:** ${dashboard.summary.unique_tools}\n`;
+        text += `- **Total Tokens (In):** ${dashboard.summary.total_tokens_in.toLocaleString()}\n`;
+        text += `- **Total Tokens (Out):** ${dashboard.summary.total_tokens_out.toLocaleString()}\n`;
+        text += `- **Cache Hit Rate:** ${(dashboard.summary.cache_hit_rate * 100).toFixed(1)}%\n`;
+        text += `- **Estimated Cost:** $${dashboard.summary.estimated_cost_usd.toFixed(4)}\n\n`;
+        
+        if (dashboard.top_tools.length > 0) {
+          text += `### Top Tools\n`;
+          for (const t of dashboard.top_tools.slice(0, 10)) {
+            text += `- **${t.tool}** — ${t.calls} calls, ${t.tokens.toLocaleString()} tokens\n`;
+          }
+          text += `\n`;
+        }
+        
+        if (dashboard.daily.length > 0) {
+          text += `### Recent Activity\n`;
+          for (const d of dashboard.daily.slice(-7)) {
+            text += `- ${d.date}: ${d.calls} calls, ${d.tokens.toLocaleString()} tokens\n`;
+          }
+        }
+        
+        return { content: [{ type: "text", text }] };
+      }
+
+      case "wyrm_cost_report": {
+        if (!hasFeature('analytics')) {
+          return {
+            content: [{ type: "text", text: `🐉 Cost reports require a Pro license or higher.\nVisit https://ghosts.lk/wyrm to upgrade.` }],
+          };
+        }
+        
+        const period = args?.period as string | undefined;
+        const report = analytics.costReport(period);
+        
+        let text = `🐉 **Cost Report** — ${report.period}\n\n`;
+        text += `- **Total Cost:** $${report.total_cost_usd.toFixed(4)}\n`;
+        text += `- **Projected Monthly:** $${report.projected_monthly_usd.toFixed(2)}\n\n`;
+        
+        if (report.tools.length > 0) {
+          text += `### By Tool\n`;
+          for (const t of report.tools.slice(0, 10)) {
+            text += `- **${t.tool}** — ${t.calls} calls, $${t.cost_usd.toFixed(4)}\n`;
+          }
+        }
+        
+        return { content: [{ type: "text", text }] };
+      }
+
+      case "wyrm_cloud_backup": {
+        if (!hasFeature('cloud_backup')) {
+          return {
+            content: [{ type: "text", text: `🐉 Cloud backup requires a Pro license or higher.\nVisit https://ghosts.lk/wyrm to upgrade.` }],
+          };
+        }
+        
+        const action = args?.action as string;
+        
+        switch (action) {
+          case "backup": {
+            const result = await cloudBackup.backup(db.getDatabasePath());
+            const meta = result.metadata;
+            return {
+              content: [{ type: "text", text: `🐉 ✓ Backup complete!\n\n- **Key:** ${result.key}\n- **Size:** ${(meta.db_size / 1024).toFixed(1)} KB → ${(meta.compressed_size / 1024).toFixed(1)} KB compressed\n- **Encrypted:** ${meta.encrypted ? 'Yes' : 'No'}\n- **Checksum:** ${meta.checksum.slice(0, 16)}...` }],
+            };
+          }
+          case "restore": {
+            const backupKey = args?.backupKey as string;
+            if (!backupKey) throw new Error("backupKey required for restore");
+            const result = await cloudBackup.restore(backupKey, db.getDatabasePath());
+            return {
+              content: [{ type: "text", text: `🐉 ✓ Restore complete!\n\n- **Restored:** ${result.restored ? 'Yes' : 'No'}\n- **Size:** ${(result.size / 1024).toFixed(1)} KB\n- **Previous DB backed up to:** ${db.getDatabasePath()}.bak\n\n⚠️ Restart Wyrm to use the restored database.` }],
+            };
+          }
+          case "list": {
+            const backups = await cloudBackup.listBackups();
+            if (backups.length === 0) {
+              return { content: [{ type: "text", text: `🐉 No backups found.` }] };
+            }
+            let text = `🐉 **Cloud Backups** (${backups.length} found)\n\n`;
+            for (const b of backups) {
+              text += `- **${b.timestamp}** — ${(b.db_size / 1024).toFixed(1)} KB, encrypted: ${b.encrypted}, machine: ${b.machine_id.slice(0, 8)}...\n`;
+            }
+            return { content: [{ type: "text", text }] };
+          }
+          case "prune": {
+            const keepCount = (args?.keepCount as number) || 10;
+            const result = await cloudBackup.pruneBackups(keepCount);
+            return {
+              content: [{ type: "text", text: `🐉 ✓ Pruned ${result.deleted} old backup(s). Kept ${keepCount} most recent.` }],
+            };
+          }
+          default:
+            return { content: [{ type: "text", text: `Unknown backup action: ${action}. Use: backup, restore, list, prune` }], isError: true };
+        }
+      }
+
+      case "wyrm_encrypt_setup": {
+        if (!hasFeature('encryption')) {
+          return {
+            content: [{ type: "text", text: `🐉 Encryption setup requires a Pro license or higher.\nVisit https://ghosts.lk/wyrm to upgrade.` }],
+          };
+        }
+        
+        const encAction = args?.action as string;
+        const cryptoInstance = getCrypto();
+        
+        switch (encAction) {
+          case "status": {
+            const enabled = cryptoInstance.isEnabled();
+            let text = `🐉 **Encryption Status**\n\n`;
+            text += `- **Enabled:** ${enabled ? '✓ Yes' : '✗ No'}\n`;
+            text += `- **Algorithm:** AES-256-GCM\n`;
+            if (enabled) {
+              text += `- **Status:** Active — new data is encrypted at rest\n`;
+            } else {
+              text += `\nTo enable, run: \`wyrm_encrypt_setup\` with action "enable" and a strong password.\n`;
+            }
+            return { content: [{ type: "text", text }] };
+          }
+          case "enable": {
+            const password = args?.password as string;
+            if (!password || password.length < 8) {
+              return { content: [{ type: "text", text: `🐉 Password must be at least 8 characters.` }], isError: true };
+            }
+            initializeCrypto(password);
+            return {
+              content: [{ type: "text", text: `🐉 ✓ Encryption enabled!\n\n- **Algorithm:** AES-256-GCM\n- **Key derived from:** your password (PBKDF2)\n\n⚠️ **Store your password safely.** Lost passwords cannot be recovered.\nNew data lake entries will be encrypted at rest.` }],
+            };
+          }
+          case "test": {
+            if (!cryptoInstance.isEnabled()) {
+              return { content: [{ type: "text", text: `🐉 Encryption not enabled. Run with action "enable" first.` }] };
+            }
+            const testData = "Wyrm encryption test " + Date.now();
+            const encrypted = cryptoInstance.encrypt(testData);
+            const decrypted = cryptoInstance.decrypt(encrypted);
+            const ok = decrypted === testData;
+            return {
+              content: [{ type: "text", text: `🐉 Encryption test: ${ok ? '✓ PASSED' : '✗ FAILED'}\n- Encrypted ${testData.length} chars → decrypted back to ${decrypted.length} chars` }],
+            };
+          }
+          default:
+            return { content: [{ type: "text", text: `Unknown encrypt action: ${encAction}. Use: status, enable, test` }], isError: true };
+        }
+      }
+
       default:
         return {
           content: [{ type: "text", text: `Unknown tool: ${name}` }],
@@ -1597,6 +1921,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  
+  // Graceful shutdown — flush analytics buffer
+  const shutdown = () => {
+    try { analytics.shutdown(); } catch {}
+    process.exit(0);
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
 }
 
 main().catch(console.error);
