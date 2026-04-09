@@ -3,7 +3,7 @@
 > Your AI forgets everything between sessions. Wyrm remembers.
 
 [![npm version](https://img.shields.io/npm/v/@wyrm/mcp-server?color=22c55e&label=npm)](https://www.npmjs.com/package/@wyrm/mcp-server)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-79%20passing-22c55e)](packages/mcp-server)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![MCP](https://img.shields.io/badge/MCP-compatible-purple)](https://modelcontextprotocol.io)
@@ -369,7 +369,9 @@ Found a vulnerability? Please open an issue or email security@ghosts.lk.
 
 ## License
 
-[MIT](LICENSE) — Copyright © 2024-2026 [Ghost Protocol (Pvt) Ltd](https://ghosts.lk)
+[AGPL-3.0](LICENSE) — Copyright © 2024-2026 [Ghost Protocol (Pvt) Ltd](https://ghosts.lk)
+
+For commercial licensing (e.g. embedding Wyrm in proprietary products), contact [ghosts.lk@proton.me](mailto:ghosts.lk@proton.me).
 
 ---
 

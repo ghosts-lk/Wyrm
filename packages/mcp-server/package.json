@@ -38,7 +38,7 @@
     "full-text-search"
   ],
   "author": "Ghost Protocol (Pvt) Ltd <legal@ghosts.lk>",
-  "license": "MIT",
+  "license": "AGPL-3.0-or-later",
   "homepage": "https://github.com/ghosts-lk/Wyrm",
   "repository": {
     "type": "git",
