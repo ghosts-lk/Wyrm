@@ -1,5 +1,5 @@
 {
-  "name": "@wyrm/mcp-server",
+  "name": "wyrm-mcp",
   "version": "3.2.0",
   "description": "🐉 Wyrm - Persistent AI Memory System with encryption, full-text search, and infinite storage",
   "type": "module",
@@ -10,6 +10,11 @@
     "wyrm": "dist/http-fast.js",
     "wyrm-setup": "dist/setup.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
