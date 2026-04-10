@@ -751,6 +751,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   let result: any;
 
+  // Validate required args helper
+  const a = args || {};
+  const requireArgs = (fields: string[]) => {
+    const missing = fields.filter(f => !a[f] && a[f] !== 0 && a[f] !== false);
+    if (missing.length > 0) {
+      return { content: [{ type: "text", text: `Missing required arguments: ${missing.join(', ')}` }], isError: true };
+    }
+    return null;
+  };
+
   try {
     result = await (async () => {
     switch (name) {
@@ -991,6 +1001,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       // ==================== DATA LAKE ====================
       case "wyrm_data_insert": {
+        const argErr = requireArgs(['projectPath', 'category', 'key', 'value']);
+        if (argErr) return argErr;
         const { projectPath, category, key, value, metadata } = args as {
           projectPath: string;
           category: string;

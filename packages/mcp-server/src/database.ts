@@ -929,8 +929,8 @@ export class WyrmDB {
   searchSkills(query: string, limit = 20): Skill[] {
     return this.db.prepare(`
       SELECT s.* FROM skills s
-      JOIN skills_fts fts ON s.id = fts.rowid
-      WHERE fts MATCH ?
+      JOIN skills_fts ON s.id = skills_fts.rowid
+      WHERE skills_fts MATCH ?
       ORDER BY rank
       LIMIT ?
     `).all(query, limit) as Skill[];

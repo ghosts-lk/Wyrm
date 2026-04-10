@@ -103,7 +103,7 @@ export function sanitizeFtsQuery(query: string): string {
   // Remove FTS5 special syntax characters
   // Allowed: alphanumeric, spaces, common punctuation
   const sanitized = query
-    .replace(/[*"():^{}[\]\\]/g, ' ')  // Remove FTS operators
+    .replace(/[*"():^{}[\]\\.@#$%&!?<>~`|;,]/g, ' ')  // Remove FTS operators and special chars
     .replace(/\s+/g, ' ')               // Normalize whitespace
     .trim()
     .slice(0, 500);                     // Limit length
