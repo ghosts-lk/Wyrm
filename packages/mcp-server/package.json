@@ -1,6 +1,6 @@
 {
   "name": "wyrm-mcp",
-  "version": "3.2.0",
+  "version": "3.2.1",
   "description": "🐉 Wyrm - Persistent AI Memory System with encryption, full-text search, and infinite storage",
   "type": "module",
   "main": "dist/index.js",
